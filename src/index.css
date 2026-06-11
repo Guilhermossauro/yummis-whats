@@ -1,1 +1,40 @@
 @import "tailwindcss";
+
+/* Dark mode controlado por classe .dark no <html> */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ------------------------------------------------------------------
+   Tema CLARO para os módulos legados (que foram escritos em tema escuro).
+   Quando NÃO está em .dark, remapeamos as cores escuras dentro do painel
+   de conteúdo (.legacy-pane) para um visual claro, sem reescrever cada
+   componente. No tema escuro, as classes originais valem normalmente.
+------------------------------------------------------------------ */
+html:not(.dark) .legacy-pane .bg-slate-950,
+html:not(.dark) .legacy-pane [class*="bg-slate-950/"] { background-color: #ffffff !important; }
+html:not(.dark) .legacy-pane .bg-slate-900,
+html:not(.dark) .legacy-pane [class*="bg-slate-900/"] { background-color: #f8fafc !important; }
+html:not(.dark) .legacy-pane .bg-slate-800,
+html:not(.dark) .legacy-pane [class*="bg-slate-800/"] { background-color: #eef2f7 !important; }
+html:not(.dark) .legacy-pane .bg-black\/20,
+html:not(.dark) .legacy-pane [class*="bg-black/"] { background-color: #f1f5f9 !important; }
+html:not(.dark) .legacy-pane [class*="bg-white/"] { background-color: rgba(15, 23, 42, 0.04) !important; }
+
+html:not(.dark) .legacy-pane .text-white { color: #1e293b !important; }
+html:not(.dark) .legacy-pane .text-slate-100 { color: #1e293b !important; }
+html:not(.dark) .legacy-pane .text-slate-200 { color: #334155 !important; }
+html:not(.dark) .legacy-pane .text-slate-300 { color: #475569 !important; }
+html:not(.dark) .legacy-pane .text-slate-400 { color: #64748b !important; }
+html:not(.dark) .legacy-pane .text-slate-500 { color: #94a3b8 !important; }
+
+html:not(.dark) .legacy-pane [class*="border-white/"] { border-color: #e2e8f0 !important; }
+
+/* Inputs/áreas em tema claro */
+html:not(.dark) .legacy-pane input,
+html:not(.dark) .legacy-pane textarea,
+html:not(.dark) .legacy-pane select { color: #1e293b; }
+html:not(.dark) .legacy-pane input::placeholder,
+html:not(.dark) .legacy-pane textarea::placeholder { color: #94a3b8; }
+
+/* Scrollbar discreta */
+.legacy-pane ::-webkit-scrollbar { width: 7px; height: 7px; }
+.legacy-pane ::-webkit-scrollbar-thumb { background: rgba(100,116,139,0.35); border-radius: 8px; }

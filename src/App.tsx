@@ -17,10 +17,9 @@ import {
   Bell,
   Search,
   Moon,
-  UserPlus,
-  PieChart,
-  BarChart3,
-  ChevronRight
+  Sun,
+  ChevronRight,
+  LayoutDashboard
 } from 'lucide-react';
 
 import AdminLogin from './components/AdminLogin';
@@ -37,6 +36,7 @@ import { SQLProduct, SQLLead, SQLCart, SQLOrder, SQLMessageLog, WhatsAppConfig, 
 import { PRODUCTS } from './data/products';
 import { getSendMessageURL, getGatewayBaseURL, isGatewayMode } from './lib/gateway';
 import { processBotMessage, BotProduct } from './lib/botProcessor';
+import DashboardHome from './components/DashboardHome';
 
 export default function App() {
   
@@ -47,7 +47,18 @@ export default function App() {
   });
 
   // 2. Tab selection
-  const [activeTab, setActiveTab] = useState<'crm' | 'catalog' | 'chat' | 'simulator' | 'settings' | 'sqlite' | 'customer_profiles'>('simulator');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'crm' | 'catalog' | 'chat' | 'simulator' | 'settings' | 'sqlite' | 'customer_profiles'>('dashboard');
+
+  // Tema (claro / escuro) — persistido e aplicado no <html>
+  const [dark, setDark] = useState<boolean>(() => document.documentElement.classList.contains('dark'));
+  const toggleTheme = () => {
+    setDark(prev => {
+      const next = !prev;
+      document.documentElement.classList.toggle('dark', next);
+      localStorage.setItem('yms_theme', next ? 'dark' : 'light');
+      return next;
+    });
+  };
 
   // 3. Database tables (Simulated SQL)
   const [products, setProducts] = useState<SQLProduct[]>(() => {
@@ -647,30 +658,20 @@ export default function App() {
     alert(`[CRON SCHEDULE] Varredura SQLite finalizada.\n\nContas inspecionadas: ${shoppingLeads.length}\nAutomações disparadas com sucesso de abandono ${hours}h: ${firedCount}`);
   };
 
-  // Navegação lateral (estilo Cross Admin)
+  // Navegação lateral (estilo Cross Admin). O Dashboard é a tela de métricas.
   const NAV = [
+    { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { key: 'simulator', label: 'Simulador', icon: Smartphone },
     { key: 'crm', label: 'Funil de Vendas', icon: TrendingUp },
     { key: 'chat', label: 'Chat Omnichannel', icon: MessageSquare },
     { key: 'catalog', label: 'Catálogo', icon: ShoppingBag },
     { key: 'settings', label: 'Conexões & Conta', icon: Wifi },
-    { key: 'sqlite', label: 'Banco SQLite', icon: Database },
     { key: 'customer_profiles', label: 'Perfis de Clientes', icon: User },
   ] as const;
   const activeNav = NAV.find(n => n.key === activeTab);
 
-  // Cartões de estatística do topo (dados reais da plataforma)
-  const paidCount = orders.filter(o => o.status_pagamento === 'PAGO').length;
-  const salesRate = orders.length ? Math.round((paidCount / orders.length) * 100) : 0;
-  const STAT_CARDS = [
-    { label: 'Pedidos', value: String(orders.length), Icon: ShoppingBag, grad: 'from-slate-500 to-slate-700' },
-    { label: 'Taxa de Vendas', value: salesRate + '%', Icon: BarChart3, grad: 'from-teal-500 to-emerald-600' },
-    { label: 'Leads', value: String(leads.length), Icon: UserPlus, grad: 'from-fuchsia-500 to-purple-600' },
-    { label: 'Mensagens', value: String(messages.length), Icon: PieChart, grad: 'from-orange-500 to-red-500' },
-  ];
-
   return (
-    <div className="bg-[#eef1f6] min-h-screen text-slate-800 font-sans" id="main-admin-app-root">
+    <div className="bg-[#eef1f6] dark:bg-slate-950 min-h-screen text-slate-800 dark:text-slate-100 font-sans transition-colors" id="main-admin-app-root">
 
       {lojistaUser === null ? (
         <AdminLogin onLoginSuccess={handleLogin} />
@@ -689,21 +690,21 @@ export default function App() {
       ) : (
         <div className="flex min-h-screen" id="dashboard-wrapper">
           {/* SIDEBAR */}
-          <aside className="w-60 bg-white border-r border-slate-200 flex-col shrink-0 sticky top-0 h-screen hidden md:flex">
-            <div className="flex items-center gap-2 px-5 h-16 border-b border-slate-100">
+          <aside className="w-60 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-white/10 flex-col shrink-0 sticky top-0 h-screen hidden md:flex">
+            <div className="flex items-center gap-2 px-5 h-16 border-b border-slate-100 dark:border-white/10">
               <div className="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center text-white"><Layers className="w-5 h-5" /></div>
-              <span className="font-extrabold text-slate-800 text-lg">YMS <span className="text-indigo-600">CRM</span></span>
+              <span className="font-extrabold text-slate-800 dark:text-white text-lg">YMS <span className="text-indigo-500">CRM</span></span>
             </div>
             <nav className="flex-1 overflow-y-auto py-3">
-              <p className="px-5 text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Menu</p>
+              <p className="px-5 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">Menu</p>
               {NAV.map(item => (
                 <button key={item.key} onClick={() => setActiveTab(item.key as any)}
-                  className={`w-full flex items-center gap-3 px-5 py-2.5 text-sm font-semibold transition-all ${activeTab === item.key ? 'text-indigo-600 bg-indigo-50 border-r-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'}`}>
+                  className={`w-full flex items-center gap-3 px-5 py-2.5 text-sm font-semibold transition-all ${activeTab === item.key ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 border-r-2 border-indigo-600 dark:border-indigo-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/5 hover:text-slate-800 dark:hover:text-white'}`}>
                   <item.icon className="w-4 h-4" /> {item.label}
                 </button>
               ))}
             </nav>
-            <button onClick={handleLogout} className="flex items-center gap-3 px-5 py-3 text-sm font-semibold text-rose-500 hover:bg-rose-50 border-t border-slate-100">
+            <button onClick={handleLogout} className="flex items-center gap-3 px-5 py-3 text-sm font-semibold text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 border-t border-slate-100 dark:border-white/10">
               <LogOut className="w-4 h-4" /> Sair
             </button>
           </aside>
@@ -711,19 +712,21 @@ export default function App() {
           {/* MAIN COLUMN */}
           <div className="flex-1 flex flex-col min-w-0">
             {/* TOPBAR */}
-            <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-6 sticky top-0 z-30">
+            <header className="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-white/10 flex items-center justify-between px-4 sm:px-6 sticky top-0 z-30">
               <div className="flex items-center gap-3 flex-1 max-w-md">
-                <div className="flex items-center gap-2 w-full bg-slate-100 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2 w-full bg-slate-100 dark:bg-slate-800 rounded-lg px-3 py-2">
                   <Search className="w-4 h-4 text-slate-400" />
-                  <input placeholder="Buscar..." className="bg-transparent text-sm outline-none flex-1 text-slate-700" />
+                  <input placeholder="Buscar..." className="bg-transparent text-sm outline-none flex-1 text-slate-700 dark:text-slate-200" />
                 </div>
               </div>
               <div className="flex items-center gap-4">
-                <Moon className="w-5 h-5 text-slate-400 cursor-pointer hover:text-slate-600" />
-                <div className="relative"><Bell className="w-5 h-5 text-slate-400 cursor-pointer hover:text-slate-600" /><span className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full" /></div>
-                <div className="flex items-center gap-2 pl-3 border-l border-slate-200">
+                <button onClick={toggleTheme} title="Alternar tema" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                  {dark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+                </button>
+                <div className="relative"><Bell className="w-5 h-5 text-slate-400 cursor-pointer hover:text-slate-600 dark:hover:text-slate-200" /><span className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full" /></div>
+                <div className="flex items-center gap-2 pl-3 border-l border-slate-200 dark:border-white/10">
                   <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold">{(lojistaUser?.name || 'U').slice(0, 2).toUpperCase()}</div>
-                  <span className="text-sm font-semibold text-slate-700 hidden sm:block">{lojistaUser?.name}</span>
+                  <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 hidden sm:block">{lojistaUser?.name}</span>
                 </div>
               </div>
             </header>
@@ -733,29 +736,16 @@ export default function App() {
               {/* Breadcrumb */}
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div>
-                  <h1 className="text-xl font-extrabold text-slate-800">{activeNav?.label}</h1>
-                  <p className="text-xs text-slate-400 flex items-center gap-1">Home <ChevronRight className="w-3 h-3" /> {activeNav?.label}</p>
+                  <h1 className="text-xl font-extrabold text-slate-800 dark:text-white">{activeNav?.label}</h1>
+                  <p className="text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1">Home <ChevronRight className="w-3 h-3" /> {activeNav?.label}</p>
                 </div>
-              </div>
-
-              {/* STAT CARDS */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                {STAT_CARDS.map(c => (
-                  <div key={c.label} className={`bg-gradient-to-br ${c.grad} rounded-xl p-4 text-white shadow-md flex items-center justify-between`}>
-                    <div>
-                      <div className="text-2xl font-extrabold leading-tight">{c.value}</div>
-                      <div className="text-xs opacity-90 font-medium">{c.label}</div>
-                    </div>
-                    <c.Icon className="w-9 h-9 opacity-80" />
-                  </div>
-                ))}
               </div>
 
               {/* Navegação mobile (sidebar oculta no mobile) */}
               <div className="md:hidden flex gap-2 overflow-x-auto pb-1">
                 {NAV.map(item => (
                   <button key={item.key} onClick={() => setActiveTab(item.key as any)}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap ${activeTab === item.key ? 'bg-indigo-600 text-white' : 'bg-white text-slate-500 border border-slate-200'}`}>
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap ${activeTab === item.key ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 border border-slate-200 dark:border-white/10'}`}>
                     <item.icon className="w-3.5 h-3.5" /> {item.label}
                   </button>
                 ))}
@@ -850,9 +840,14 @@ export default function App() {
             </button>
           </div>
 
-          {/* Active Tab rendering router */}
-          <div className="transition-all duration-350 min-h-[550px]" id="tab-body-pane">
-            
+          {/* Dashboard (tela própria de métricas/gráficos) */}
+          {activeTab === 'dashboard' && (
+            <DashboardHome products={products} leads={leads} carts={carts} orders={orders} messages={messages} />
+          )}
+
+          {/* Active Tab rendering router — módulos legados (tema claro via .legacy-pane) */}
+          <div className="legacy-pane transition-all duration-350" id="tab-body-pane">
+
             {activeTab === 'simulator' && (
               <div className="space-y-4">
                 <div className="bg-slate-900/40 backdrop-blur-md border border-white/10 rounded-2xl p-5 shadow-xl">
