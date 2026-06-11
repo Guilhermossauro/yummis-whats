@@ -34,8 +34,8 @@ const creditos = () =>
   fetch(`${BASE}/api/stats/${USER}`).then((r) => r.json()).then((s) => s.credits);
 
 const products = [
-  { codigo: 'VST001', nome: 'Vestido Floral Verão', preco: 159.9, estoque: 10 },
-  { codigo: 'BLS002', nome: 'Blusa Cropped', preco: 79.9, estoque: 5 },
+  { codigo: 'VST001', nome: 'Vestido Floral Verão', preco: 159.9, estoque: 10, descricao: 'Vestido leve com estampa floral.', foto_path: 'https://picsum.photos/seed/vst001/400' },
+  { codigo: 'BLS002', nome: 'Blusa Cropped', preco: 79.9, estoque: 5, descricao: 'Blusa cropped canelada.', foto_path: 'https://picsum.photos/seed/bls002/400' },
 ];
 
 let since = 0;
@@ -52,16 +52,21 @@ async function customerSays(text: string) {
   for (const m of incoming) {
     const res = processBotMessage(m.texto, state, { products, leadName: 'Cliente' });
     state = res.nextBlockId;
-    // handoff: bot pediu atendente humano -> pausa o bot no gateway
     if (res.action === 'pause_bot') {
       await post('/api/bot/handoff', { phone: FROM, channel: 'whatsapp' }, true);
     }
-    // 4) envia a resposta que o BOT montou pelo gateway
-    for (const reply of res.replies) {
-      await post('/api/gateway/send', { to: FROM, channel: 'whatsapp', message: reply, actor: 'bot' }, true);
-    }
     console.log(`\nCLIENTE: "${text}"`);
-    console.log('  BOT ->', res.replies[0].split('\n').slice(0, 3).join(' / ').slice(0, 90));
+    // 4) envia cada resposta (texto OU imagem) que o BOT montou, pelo gateway
+    for (const reply of res.replies) {
+      if (reply.type === 'image') {
+        await post('/api/gateway/send', { to: FROM, channel: 'whatsapp', image: reply.image, caption: reply.caption, actor: 'bot' }, true);
+        console.log('  BOT 📷 IMAGEM ->', reply.image);
+        console.log('        legenda ->', reply.caption.replace(/\n/g, ' / ').slice(0, 70));
+      } else {
+        await post('/api/gateway/send', { to: FROM, channel: 'whatsapp', message: reply.text, actor: 'bot' }, true);
+        console.log('  BOT ->', reply.text.split('\n').slice(0, 2).join(' / ').slice(0, 80));
+      }
+    }
     if (res.action) console.log('  AÇÃO ->', res.action);
   }
 }
@@ -74,9 +79,11 @@ async function customerSays(text: string) {
   const c0 = await creditos();
 
   await customerSays('oi');
-  await customerSays('1'); // catálogo
-  await customerSays('oi'); // volta ao menu
-  await customerSays('4'); // falar com humano (deve disparar pause_bot)
+  await customerSays('catálogo'); // matching por PALAVRA (em vez de número)
+  await customerSays('VST001');   // pede produto pelo CÓDIGO -> foto + ficha
+  await customerSays('Blusa Cropped'); // pede produto pelo NOME -> foto + ficha
+  await customerSays('oi');
+  await customerSays('4'); // falar com humano (número) -> pause_bot
 
   // Verificações finais
   const final = await inbox(since - 50);

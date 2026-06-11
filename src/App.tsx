@@ -217,11 +217,14 @@ export default function App() {
     const base = getGatewayBaseURL();
     const token = whatsAppConfig.apiKey;
 
-    // Produtos atuais da plataforma (para o catálogo do bot)
+    // Produtos atuais da plataforma (para o catálogo do bot e o card com foto)
     const readProducts = (): BotProduct[] => {
       try {
         const saved = JSON.parse(localStorage.getItem('sql_products') || '[]');
-        return saved.map((p: any) => ({ codigo: p.codigo, nome: p.nome, preco: p.preco, estoque: p.estoque }));
+        return saved.map((p: any) => ({
+          codigo: p.codigo, nome: p.nome, preco: p.preco, estoque: p.estoque,
+          descricao: p.descricao, foto_path: p.foto_path,
+        }));
       } catch { return []; }
     };
 
@@ -246,12 +249,16 @@ export default function App() {
         }).catch(() => {});
       }
 
-      // Envia as respostas que o BOT montou (gateway só entrega; actor=bot debita)
+      // Envia as respostas que o BOT montou (gateway só entrega; actor=bot debita).
+      // Suporta texto e imagem (card de produto com foto + ficha).
       for (const reply of result.replies) {
+        const payload = reply.type === 'image'
+          ? { to: m.telefone, channel: m.channel || 'whatsapp', image: reply.image, caption: reply.caption, actor: 'bot' }
+          : { to: m.telefone, channel: m.channel || 'whatsapp', message: reply.text, actor: 'bot' };
         await fetch(`${base}/api/gateway/send`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ to: m.telefone, channel: m.channel || 'whatsapp', message: reply, actor: 'bot' }),
+          body: JSON.stringify(payload),
         }).catch(() => {});
       }
     };

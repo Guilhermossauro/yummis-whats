@@ -93,4 +93,19 @@ async function send(userId, chatId, text) {
   return data.result;
 }
 
-module.exports = { start, stop, send, status };
+// Envia foto (URL pública). Para base64, cai de volta para texto com a legenda.
+async function sendPhoto(userId, chatId, photo, caption) {
+  const s = sessions.get(userId);
+  if (!s || !s.running) throw new Error('Telegram desconectado para este usuário.');
+  if (!/^https?:\/\//i.test(photo)) return send(userId, chatId, caption || '');
+  const res = await fetch(API(s.token, 'sendPhoto'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, photo, caption: caption || '', parse_mode: 'Markdown' }),
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.description || 'sendPhoto falhou');
+  return data.result;
+}
+
+module.exports = { start, stop, send, sendPhoto, status };

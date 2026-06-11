@@ -65,6 +65,34 @@ function makeSenderForLead(lead) {
   return null;
 }
 
+// Converte uma imagem (URL http(s) ou data URL/base64) no formato do Baileys.
+function toImageContent(image) {
+  if (/^https?:\/\//i.test(image)) return { url: image };
+  const b64 = image.includes(',') ? image.split(',')[1] : image;
+  return Buffer.from(b64, 'base64');
+}
+
+// Entrega uma mensagem (texto OU imagem com legenda) pelo canal indicado.
+async function deliverMessage(userId, to, channel, { text, image, caption }) {
+  if (channel === 'whatsapp') {
+    const s = activeSessions.get(userId);
+    if (!s || s.status !== 'CONNECTED' || !s.socket || s.isSimulated) {
+      throw new Error('WhatsApp não conectado para este usuário.');
+    }
+    const jid = String(to).replace(/\D/g, '') + '@s.whatsapp.net';
+    if (image) await s.socket.sendMessage(jid, { image: toImageContent(image), caption: caption || '' });
+    else await s.socket.sendMessage(jid, { text });
+    return;
+  }
+  if (channel === 'telegram') {
+    if (telegram.status(userId).status !== 'CONNECTED') throw new Error('Telegram não conectado.');
+    if (image) await telegram.sendPhoto(userId, to, image, caption);
+    else await telegram.send(userId, to, text);
+    return;
+  }
+  throw new Error(`Canal ${channel} não suporta entrega push (use webhook).`);
+}
+
 // Resolve o usuário do gateway a partir do header Authorization: Bearer <token>.
 function userFromAuth(req) {
   const h = req.headers.authorization || '';
@@ -826,8 +854,8 @@ app.post('/api/webhook/:channel', (req, res) => {
 app.post('/api/gateway/send', async (req, res) => {
   const user = userFromAuth(req);
   if (!user) return res.status(401).json({ error: 'Token Bearer inválido.' });
-  const { to, channel = 'whatsapp', message, actor = 'bot' } = req.body || {};
-  if (!to || !message) return res.status(400).json({ error: 'Campos "to" e "message" são obrigatórios.' });
+  const { to, channel = 'whatsapp', message, image, caption, actor = 'bot' } = req.body || {};
+  if (!to || (!message && !image)) return res.status(400).json({ error: 'Informe "message" ou "image".' });
 
   // Expiração / créditos (apenas o bot consome)
   if (user.expirationDate && new Date(user.expirationDate).getTime() < Date.now()) {
@@ -837,16 +865,15 @@ app.post('/api/gateway/send', async (req, res) => {
     return res.status(403).json({ error: 'Sem créditos de mensagens (bot).' });
   }
 
-  const send = makeSenderForLead({ owner_id: user.id, telefone: String(to).trim(), channel });
-  if (!send) return res.status(409).json({ error: `Canal ${channel} não conectado para este usuário.` });
-
   try {
-    await send(message);
-    botEngine.recordOutgoing(to, channel, message, user.id, actor === 'operator' ? '[operador] ' : '');
+    await deliverMessage(user.id, to, channel, { text: message, image, caption });
+    const logText = image ? `[foto] ${caption || ''}`.trim() : message;
+    botEngine.recordOutgoing(to, channel, logText, user.id, actor === 'operator' ? '[operador] ' : '');
     if (actor === 'bot') consumeBotToken(user.id);
     return res.json({ success: true, remainingTokens: gateway.getUserById(user.id).tokensCount });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    const code = /não conectado|desconectad/i.test(err.message) ? 409 : 500;
+    return res.status(code).json({ error: err.message });
   }
 });
 
