@@ -138,6 +138,11 @@ async function enter(lead, blockId, send) {
       leadRepo.update(lead.id, { bot_step: blockId });
       return;
     }
+    // returnTo: volta a aguardar no bloco indicado SEM re-renderizá-lo
+    if (block.returnTo) {
+      leadRepo.update(lead.id, { bot_step: block.returnTo });
+      return;
+    }
     if (block.next) {
       blockId = block.next; // auto-avança (encadeado)
       continue;

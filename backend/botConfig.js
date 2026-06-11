@@ -81,20 +81,22 @@ const FLOW = {
   },
 
   // ---------------- Blocos que consultam o BANCO ----------------
+  // returnTo: após enviar o conteúdo, o bot volta a AGUARDAR uma opção do menu
+  // SEM reenviar a mensagem de boas-vindas/menu (evita repetição).
   catalogo: {
     title: 'Catálogo (DB: products)',
     dynamic: 'listarProdutos', // resolve do SQLite
-    next: 'menu',
+    returnTo: 'menu',
   },
   meus_pedidos: {
     title: 'Status de pedidos (DB: orders)',
     dynamic: 'listarPedidos',
-    next: 'menu',
+    returnTo: 'menu',
   },
   sacola: {
     title: 'Sacola (DB: carts)',
     dynamic: 'listarSacola',
-    next: 'menu',
+    returnTo: 'menu',
   },
 
   // ---------------- Suporte humano (handoff) ----------------
