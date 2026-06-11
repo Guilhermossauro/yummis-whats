@@ -29,6 +29,7 @@ import AdminCustomerProfiles from './components/AdminCustomerProfiles';
 import { SQLProduct, SQLLead, SQLCart, SQLOrder, SQLMessageLog, WhatsAppConfig, SQLSeller, SQLEmployee } from './types';
 import { PRODUCTS } from './data/products';
 import { getSendMessageURL, getGatewayBaseURL, isGatewayMode } from './lib/gateway';
+import { processBotMessage, BotProduct } from './lib/botProcessor';
 
 export default function App() {
   
@@ -203,18 +204,65 @@ export default function App() {
   //  aqui no front com a origem de cada mensagem.
   // ------------------------------------------------------------------
   const gatewayLastIdRef = useRef<number>(Number(localStorage.getItem('gw_inbox_since') || 0));
+  // Estado do fluxo do bot por lead (bloco atual da conversa), persistido.
+  const botStateRef = useRef<Record<string, string>>(
+    JSON.parse(localStorage.getItem('gw_bot_state') || '{}')
+  );
+  // Na 1ª sincronização não respondemos o histórico (apenas marcamos a base).
+  const firstSyncRef = useRef<boolean>(true);
 
   useEffect(() => {
     if (!isGatewayMode(whatsAppConfig.mode) || !whatsAppConfig.apiKey) return;
     let alive = true;
+    const base = getGatewayBaseURL();
+    const token = whatsAppConfig.apiKey;
+
+    // Produtos atuais da plataforma (para o catálogo do bot)
+    const readProducts = (): BotProduct[] => {
+      try {
+        const saved = JSON.parse(localStorage.getItem('sql_products') || '[]');
+        return saved.map((p: any) => ({ codigo: p.codigo, nome: p.nome, preco: p.preco, estoque: p.estoque }));
+      } catch { return []; }
+    };
+
+    // PROCESSAMENTO DO BOT (na plataforma) + envio da resposta pelo gateway
+    const runBotFor = async (m: any) => {
+      const stateKey = `gw${m.lead_id}`;
+      const firstName = (m.nome && m.nome !== 'Novo contato') ? String(m.nome).split(' ')[0] : '';
+      const result = processBotMessage(m.texto, botStateRef.current[stateKey], {
+        products: readProducts(),
+        leadName: firstName,
+      });
+      botStateRef.current[stateKey] = result.nextBlockId;
+      localStorage.setItem('gw_bot_state', JSON.stringify(botStateRef.current));
+
+      // Ação de handoff: pausa o bot no gateway (atendente assume)
+      if (result.action === 'pause_bot') {
+        setLeads(prev => prev.map(l => l.id === stateKey ? { ...l, bot_pausado: 1 } : l));
+        fetch(`${base}/api/bot/handoff`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ phone: m.telefone, channel: m.channel }),
+        }).catch(() => {});
+      }
+
+      // Envia as respostas que o BOT montou (gateway só entrega; actor=bot debita)
+      for (const reply of result.replies) {
+        await fetch(`${base}/api/gateway/send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ to: m.telefone, channel: m.channel || 'whatsapp', message: reply, actor: 'bot' }),
+        }).catch(() => {});
+      }
+    };
 
     const sync = async () => {
       try {
-        const url = `${getGatewayBaseURL()}/api/inbox?since=${gatewayLastIdRef.current}`;
-        const res = await fetch(url, { headers: { 'Authorization': `Bearer ${whatsAppConfig.apiKey}` } });
+        const url = `${base}/api/inbox?since=${gatewayLastIdRef.current}`;
+        const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
         if (!res.ok || !alive) return;
         const data: { lastId: number; messages: any[] } = await res.json();
-        if (!data.messages?.length) return;
+        if (!data.messages?.length) { firstSyncRef.current = false; return; }
 
         // Upsert dos leads vindos do gateway (id prefixado para não colidir)
         setLeads(prev => {
@@ -259,6 +307,17 @@ export default function App() {
 
         gatewayLastIdRef.current = data.lastId;
         localStorage.setItem('gw_inbox_since', String(data.lastId));
+
+        // A PLATAFORMA processa o fluxo: responde só às mensagens recebidas ('in')
+        // de leads com o bot ativo. Não processa o histórico na 1ª carga.
+        if (!firstSyncRef.current) {
+          for (const m of data.messages) {
+            if (m.direcao === 'in' && !m.bot_pausado) {
+              await runBotFor(m);
+            }
+          }
+        }
+        firstSyncRef.current = false;
       } catch {
         // gateway offline: tenta de novo no próximo tick
       }

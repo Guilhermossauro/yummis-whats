@@ -78,16 +78,6 @@ function consumeBotToken(userId) {
   if (u && u.tokensCount !== null && u.tokensCount > 0) gateway.decrementToken(userId);
 }
 
-// Envolve uma função de envio do BOT para debitar 1 crédito por mensagem enviada.
-function botSend(userId, send) {
-  if (!send) return send;
-  return async (...args) => {
-    const r = await send(...args);
-    consumeBotToken(userId);
-    return r;
-  };
-}
-
 // Resolve/normaliza um JID do Baileys (trata @lid -> usuário, normaliza dispositivo).
 async function resolveJid(jid, sock) {
   if (!jid) return '';
@@ -134,19 +124,12 @@ async function onWhatsAppMessages(userId, sock, msgUpdate) {
   if (message.isGroup) return; // bot só atende no privado
   if (!text) return;
 
-  // Envio do bot debita crédito (atendente humano envia por outra rota, gratuita)
-  const send = botSend(userId, async (t) => { await sock.sendMessage(chatId, { text: t }); });
+  // O GATEWAY NÃO processa o fluxo: apenas registra a mensagem para a plataforma
+  // buscar via /api/inbox e processar o bot lá.
   try {
-    await botEngine.handleIncoming({
-      ownerId: userId,
-      channel: 'whatsapp',
-      address: phone,
-      name: message.pushName || undefined,
-      text,
-      send,
-    });
+    botEngine.recordIncoming({ ownerId: userId, channel: 'whatsapp', address: phone, name: message.pushName || undefined, text });
   } catch (e) {
-    logToSession(userId, `Erro no bot ao processar mensagem: ${e.message}`, 'error');
+    logToSession(userId, `Erro ao registrar mensagem: ${e.message}`, 'error');
   }
 }
 
@@ -788,8 +771,8 @@ app.post('/api/channels/:userId', async (req, res) => {
         const token = config.botToken || (channels.get(userId, 'telegram') || {}).config?.botToken;
         if (!token) return res.status(400).json({ error: 'Informe o token do bot (@BotFather).' });
         const botName = await telegram.start(userId, token, async ({ chatId, name, text }) => {
-          const send = botSend(userId, (t) => telegram.send(userId, chatId, t));
-          await botEngine.handleIncoming({ ownerId: userId, channel: 'telegram', address: chatId, name, text, send });
+          // Só registra; a plataforma processa o fluxo e responde via /api/gateway/send.
+          botEngine.recordIncoming({ ownerId: userId, channel: 'telegram', address: chatId, name, text });
         });
         channels.upsert(userId, 'telegram', 'CONNECTED', { botToken: token });
         return res.json({ success: true, status: 'CONNECTED', botName });
@@ -815,10 +798,11 @@ app.post('/api/channels/:userId', async (req, res) => {
   }
 });
 
-// Webhook genérico de entrada — pronto para Facebook, Instagram, X (e outros).
+// Webhook genérico de entrada — Facebook, Instagram, X (e outros).
 // Auth: Bearer <token do usuário>. Body: { from, name?, text }
-// As respostas do bot são devolvidas no corpo (replies) para o integrador entregar.
-app.post('/api/webhook/:channel', async (req, res) => {
+// Apenas REGISTRA a mensagem; a plataforma processa o fluxo e responde
+// depois via /api/gateway/send.
+app.post('/api/webhook/:channel', (req, res) => {
   const { channel } = req.params;
   if (!SUPPORTED_CHANNELS.includes(channel)) return res.status(404).json({ error: 'Canal desconhecido.' });
   const user = userFromAuth(req);
@@ -826,12 +810,41 @@ app.post('/api/webhook/:channel', async (req, res) => {
   const { from, name, text } = req.body || {};
   if (!from || !text) return res.status(400).json({ error: 'Campos "from" e "text" são obrigatórios.' });
 
-  const replies = [];
-  // Respostas do bot via webhook também debitam crédito do bot
-  const send = botSend(user.id, async (t) => { replies.push(t); });
   try {
-    await botEngine.handleIncoming({ ownerId: user.id, channel, address: String(from), name, text, send });
-    return res.json({ success: true, channel, replies });
+    botEngine.recordIncoming({ ownerId: user.id, channel, address: String(from), name, text });
+    return res.json({ success: true, channel, recorded: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ====================================================================
+//  ENVIO PELO GATEWAY — a PLATAFORMA manda o que o bot/operador montou.
+//  O gateway só entrega (não decide nada). actor='bot' debita crédito;
+//  actor='operator' é gratuito.
+// ====================================================================
+app.post('/api/gateway/send', async (req, res) => {
+  const user = userFromAuth(req);
+  if (!user) return res.status(401).json({ error: 'Token Bearer inválido.' });
+  const { to, channel = 'whatsapp', message, actor = 'bot' } = req.body || {};
+  if (!to || !message) return res.status(400).json({ error: 'Campos "to" e "message" são obrigatórios.' });
+
+  // Expiração / créditos (apenas o bot consome)
+  if (user.expirationDate && new Date(user.expirationDate).getTime() < Date.now()) {
+    return res.status(403).json({ error: 'Usuário expirado.' });
+  }
+  if (actor === 'bot' && user.tokensCount !== null && user.tokensCount <= 0) {
+    return res.status(403).json({ error: 'Sem créditos de mensagens (bot).' });
+  }
+
+  const send = makeSenderForLead({ owner_id: user.id, telefone: String(to).trim(), channel });
+  if (!send) return res.status(409).json({ error: `Canal ${channel} não conectado para este usuário.` });
+
+  try {
+    await send(message);
+    botEngine.recordOutgoing(to, channel, message, user.id, actor === 'operator' ? '[operador] ' : '');
+    if (actor === 'bot') consumeBotToken(user.id);
+    return res.json({ success: true, remainingTokens: gateway.getUserById(user.id).tokensCount });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
@@ -873,33 +886,39 @@ app.get('/api/contacts/:userId', (req, res) => {
   res.json(rows);
 });
 
-// [DEV/TESTE] Simula uma mensagem chegando pelo WhatsApp e roda o MESMO handler
-// real (onWhatsAppMessages). Por padrão usa um socket mock que captura as
-// respostas do bot (não envia para número real). Passe useRealSocket=true para
-// enviar de verdade pela sessão conectada.
+// [DEV/TESTE] Simula uma mensagem CHEGANDO pelo WhatsApp. O gateway apenas
+// REGISTRA (igual ao handler real). Quem processa o fluxo e responde é a
+// plataforma (frontend), que busca via /api/inbox.
 app.post('/api/dev/sim-wa', async (req, res) => {
-  const {
-    userId = 'user_1',
-    from = '5511988887777',
-    text = 'oi',
-    name = 'Cliente Teste',
-    useRealSocket = false,
-  } = req.body || {};
+  const { userId = 'user_1', from = '5511988887777', text = 'oi', name = 'Cliente Teste' } = req.body || {};
   const jid = String(from).replace(/\D/g, '') + '@s.whatsapp.net';
-  const replies = [];
-  const mockSock = { sendMessage: async (to, content) => { replies.push({ to, text: content.text }); } };
-  const session = activeSessions.get(userId);
-  const sock = useRealSocket && session && session.socket ? session.socket : mockSock;
+  const mockSock = { sendMessage: async () => {} };
   const fakeUpdate = {
     type: 'notify',
     messages: [{ key: { remoteJid: jid, fromMe: false }, pushName: name, message: { conversation: text } }],
   };
   try {
-    await onWhatsAppMessages(userId, sock, fakeUpdate);
-    res.json({ success: true, jid, botReplied: replies.length > 0, replies, mode: sock === mockSock ? 'mock' : 'socket-real' });
+    await onWhatsAppMessages(userId, mockSock, fakeUpdate);
+    res.json({ success: true, jid, recorded: true, note: 'Mensagem registrada. A plataforma (:3050) processa o fluxo e responde via /api/gateway/send.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// [DEV/TESTE] Injeta uma sessão WhatsApp "conectada" fake (socket no-op) para
+// permitir testar a entrega de /api/gateway/send sem parear um celular real.
+app.post('/api/dev/fake-wa-connect', (req, res) => {
+  const { userId = 'user_1' } = req.body || {};
+  activeSessions.set(userId, {
+    socket: { sendMessage: async () => ({ status: 'sent' }) },
+    status: 'CONNECTED',
+    isSimulated: false,
+    phone: '5500000000000',
+    qrCodeData: null,
+    pairingCode: null,
+    logs: ['[dev] sessão fake conectada para teste'],
+  });
+  res.json({ success: true, userId, status: 'CONNECTED (fake)' });
 });
 
 // Estatísticas de uso (para o gráfico do dashboard do gateway).
@@ -961,16 +980,6 @@ app.get('/api/admin/stats', (req, res) => {
   res.json({ users, messages: msgs, leads: leadsCount, messagesToday: today });
 });
 
-// Configuração dos tempos de inatividade (lê/atualiza em runtime).
-app.get('/api/bot/config', (req, res) => {
-  res.json({ reminderMinutes: botEngine.CONFIG.reminderMinutes, resetMinutes: botEngine.CONFIG.resetMinutes });
-});
-app.post('/api/bot/config', (req, res) => {
-  const { reminderMinutes, resetMinutes } = req.body;
-  botEngine.CONFIG.set({ reminderMinutes, resetMinutes });
-  res.json({ success: true, reminderMinutes: botEngine.CONFIG.reminderMinutes, resetMinutes: botEngine.CONFIG.resetMinutes });
-});
-
 // Serve frontend public static files
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -984,8 +993,7 @@ app.listen(PORT, () => {
   console.log(`🟢 WhatsApp Gateway API Backend ativa na porta ${PORT}`);
   console.log(`🌍 Terminal Admin e Painel: http://localhost:${PORT}`);
   console.log(`===================================================`);
-  // Inicia o scanner de inatividade do bot. Mensagens automáticas são do bot → debitam crédito.
-  botEngine.startInactivityScanner((lead) => botSend(lead.owner_id, makeSenderForLead(lead)));
+  console.log(`ℹ️  Gateway em modo "cano": só recebe/encaminha/envia. O fluxo do bot roda na plataforma (:3050).`);
 
   // Retoma sessões WhatsApp já pareadas (creds.json salvo) após restart
   if (!SIMULATION_MODE) {
@@ -1009,8 +1017,7 @@ app.listen(PORT, () => {
     if (cfg && cfg.status === 'CONNECTED' && cfg.config.botToken) {
       telegram
         .start(u.id, cfg.config.botToken, async ({ chatId, name, text }) => {
-          const send = botSend(u.id, (t) => telegram.send(u.id, chatId, t));
-          await botEngine.handleIncoming({ ownerId: u.id, channel: 'telegram', address: chatId, name, text, send });
+          botEngine.recordIncoming({ ownerId: u.id, channel: 'telegram', address: chatId, name, text });
         })
         .then((botName) => console.log(`✈️  Telegram reativado p/ ${u.username}: ${botName}`))
         .catch((e) => {

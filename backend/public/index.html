@@ -664,12 +664,16 @@
           <!-- SUB: GERAL -->
           <div class="subpage" data-sub="geral">
             <div class="card">
-              <div class="card-head"><div><h3>Atendimento Automático</h3><div class="sub">Bot pausa quando um operador assume; volta ao encerrar</div></div></div>
-              <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; max-width:520px;">
-                <div class="form-group" style="margin:0;"><label>Lembrete de inatividade (min)</label><input type="number" id="bot-reminder" class="form-control" min="1" placeholder="15"></div>
-                <div class="form-group" style="margin:0;"><label>Reset da conversa (min)</label><input type="number" id="bot-reset" class="form-control" min="1" placeholder="30"></div>
+              <div class="card-head"><div><h3><i data-lucide="bot" style="width:16px;vertical-align:-2px"></i> Atendimento &amp; Fluxo do Bot</h3><div class="sub">Onde o robô é configurado e processado</div></div></div>
+              <div class="sub" style="line-height:1.8;">
+                Este gateway funciona como um <b>canal de entrega</b>: ele apenas
+                <b>recebe</b> as mensagens dos clientes e <b>envia</b> o que a plataforma manda.<br><br>
+                🧠 <b>O fluxo do bot é configurado e processado na plataforma (CRM)</b>, em
+                <code class="font-mono" style="color:var(--green)">http://localhost:3050</code> →
+                aba <b>Conexões &amp; Conta</b> / construtor de fluxo.<br>
+                🙋 Quando um atendente assume a conversa, o bot é pausado automaticamente;
+                ao encerrar, o bot volta a responder.
               </div>
-              <div class="btn-row" style="margin-top:1rem;"><button class="btn" onclick="saveBotConfig()"><i data-lucide="save" style="width:14px"></i> Salvar tempos</button></div>
             </div>
           </div>
 
@@ -958,7 +962,6 @@
         document.querySelector('.nav-item[data-page="dashboard"]').classList.remove('hidden');
         showPage('dashboard');
         loadUserProfile();
-        loadBotConfig();
         loadChannels();
         loadDashboard();
         startWhatsAppPolling();
@@ -1243,30 +1246,6 @@
     function copyEndpoint() {
       const i = document.getElementById('user-endpoint-input'); i.select();
       document.execCommand('copy'); notify('Endpoint copiado!');
-    }
-
-    // ---------------- BOT CONFIG ----------------
-    async function loadBotConfig() {
-      try {
-        const res = await fetch('/api/bot/config');
-        const cfg = await res.json();
-        document.getElementById('bot-reminder').value = cfg.reminderMinutes;
-        document.getElementById('bot-reset').value = cfg.resetMinutes;
-      } catch (e) {}
-    }
-
-    async function saveBotConfig() {
-      const reminderMinutes = Number(document.getElementById('bot-reminder').value);
-      const resetMinutes = Number(document.getElementById('bot-reset').value);
-      try {
-        const res = await fetch('/api/bot/config', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reminderMinutes, resetMinutes })
-        });
-        if (res.ok) notify('Tempos do bot atualizados!');
-        else notify('Erro ao salvar configuração.', 'error');
-      } catch (e) { notify('Erro de conexão.', 'error'); }
     }
 
     // ---------------- SUBMENU de Configurações ----------------

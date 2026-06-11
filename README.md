@@ -29,9 +29,11 @@ O **Yummis Gateway** é um sistema completo de atendimento automatizado que:
 
 O projeto tem **3 partes independentes**:
 
+> **Arquitetura desacoplada:** o **gateway é só um canal de entrega** (recebe e envia mensagens) — ele **não processa o fluxo do bot**. Todo o processamento e a configuração do fluxo acontecem na **plataforma (CRM em :3050)**, que lê as mensagens, executa o bot e devolve a resposta para o gateway entregar.
+
 | Parte | Pasta | Porta | O que faz |
 |-------|-------|-------|-----------|
-| **Backend (Gateway)** | `backend/` | `3060` | Recebe/envia mensagens, roda o bot, banco SQLite e o painel do gateway |
+| **Backend (Gateway)** | `backend/` | `3060` | Recebe/encaminha/envia mensagens, banco SQLite e painel do gateway (**não processa fluxo**) |
 | **Frontend (CRM)** | `src/` → `dist/` | `3050` (dev) | Painel CRM omnichannel "Moda Express" (React + Vite) |
 | **Centralizador** | `centralizer/` | `8080` | Junta tudo numa única URL (`/sales` + `/connection`) — ideal para **ngrok** |
 
@@ -156,14 +158,18 @@ curl -X POST http://localhost:3060/api/webhook/facebook \
 
 ## 🤖 Como o bot funciona
 
-1. **Mensagem recebida** → registrada e enviada ao site (Contatos Recentes / Chat Omnichannel).
-2. **Cliente novo** → fluxo de **cadastro** (nome + e-mail).
-3. **Cliente cadastrado** → **menu** (catálogo, pedidos, sacola — consultando o banco).
-4. **"Falar com humano"** → o **atendente assume** e o bot é pausado automaticamente.
-5. **Encerrar atendimento** → o bot volta a responder.
-6. **Inatividade**: lembrete (padrão 15 min) e reset (padrão 30 min) — **configuráveis**.
+O fluxo do bot é **configurado e processado na plataforma (CRM em :3050)** — o gateway
+apenas entrega as mensagens. O ciclo é:
 
-💰 **Tokens:** apenas as respostas do **bot** consomem créditos. Mensagens do **atendente são gratuitas**.
+1. **Cliente envia** uma mensagem (WhatsApp/Telegram/…) → o **gateway registra** e disponibiliza no `/api/inbox`.
+2. **A plataforma lê** a mensagem (polling), **executa o fluxo do bot** (`src/lib/botProcessor.ts`, fluxo configurável) e monta a resposta.
+3. **A plataforma envia** a resposta para o gateway (`/api/gateway/send`), que **entrega** ao cliente.
+4. **"Falar com humano"** → o bot dispara o handoff: o **atendente assume** e o bot é pausado.
+5. **Encerrar atendimento** → o bot volta a responder.
+
+💰 **Tokens:** apenas as respostas do **bot** (`actor: 'bot'`) consomem créditos. Mensagens do **atendente** (`actor: 'operator'`) são gratuitas.
+
+> Como o bot roda no navegador, mantenha a página do CRM (:3050 ou `/sales`) **aberta** para o atendimento automático funcionar.
 
 ---
 
