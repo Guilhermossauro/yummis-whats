@@ -1,0 +1,1552 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Yummis Gateway — Painel Omnichannel</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    :root {
+      --bg: #0a0f0d;
+      --bg-soft: #0e1512;
+      --glass: rgba(20, 32, 27, 0.55);
+      --glass-strong: rgba(24, 38, 32, 0.8);
+      --border: rgba(255, 255, 255, 0.07);
+      --text: #e8f1ec;
+      --muted: #8fa69a;
+      --green: #34d399;
+      --green-soft: rgba(52, 211, 153, 0.12);
+      --green-border: rgba(52, 211, 153, 0.25);
+      --amber: #fbbf24;
+      --amber-soft: rgba(251, 191, 36, 0.12);
+      --red: #f87171;
+      --red-soft: rgba(248, 113, 113, 0.12);
+      --blue: #60a5fa;
+      --radius: 16px;
+    }
+
+    /* Tema claro */
+    body.light {
+      --bg: #eef4f0;
+      --bg-soft: #ffffff;
+      --glass: rgba(255, 255, 255, 0.75);
+      --glass-strong: rgba(255, 255, 255, 0.92);
+      --border: rgba(6, 30, 22, 0.1);
+      --text: #0f2a20;
+      --muted: #5c7268;
+      --green-soft: rgba(16, 185, 129, 0.14);
+    }
+    body.light { background-image:
+      radial-gradient(ellipse at 15% 10%, rgba(16,185,129,0.12) 0%, transparent 45%),
+      radial-gradient(ellipse at 85% 90%, rgba(5,150,105,0.10) 0%, transparent 45%); }
+    body.light .console-logs { background: #0c1512; }
+    body.light .console-line { color: #cfe3d8; }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { transition: background-color 0.25s, color 0.25s; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Outfit', sans-serif;
+      min-height: 100vh;
+      background-image:
+        radial-gradient(ellipse at 15% 10%, rgba(16, 185, 129, 0.14) 0%, transparent 45%),
+        radial-gradient(ellipse at 85% 25%, rgba(52, 211, 153, 0.08) 0%, transparent 40%),
+        radial-gradient(ellipse at 70% 95%, rgba(5, 150, 105, 0.12) 0%, transparent 45%);
+      background-attachment: fixed;
+    }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 10px; }
+
+    .hidden { display: none !important; }
+
+    /* ============ LOGIN ============ */
+    #login-screen {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .login-card { width: 100%; max-width: 400px; }
+    .login-brand { text-align: center; margin-bottom: 1.6rem; }
+    .glyph {
+      width: 42px; height: 42px; border-radius: 12px;
+      background: linear-gradient(145deg, #34d399, #059669);
+      display: inline-flex; align-items: center; justify-content: center;
+      color: #04231a; font-weight: 900; font-size: 1.25rem;
+      box-shadow: 0 8px 22px -6px rgba(16, 185, 129, 0.55);
+    }
+    .glyph.lg { width: 62px; height: 62px; border-radius: 17px; font-size: 1.9rem; margin-bottom: 0.9rem; }
+    .login-brand h1 { font-size: 1.45rem; font-weight: 800; }
+    .login-brand p { color: var(--muted); font-size: 0.85rem; margin-top: 0.3rem; }
+
+    /* ============ SHELL ============ */
+    #app-shell { display: flex; min-height: 100vh; }
+
+    .sidebar {
+      width: 232px;
+      min-height: 100vh;
+      background: rgba(10, 16, 13, 0.85);
+      backdrop-filter: blur(14px);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 1.1rem 0.9rem;
+      flex-shrink: 0;
+    }
+    .sidebar .brand { display: flex; align-items: center; gap: 0.65rem; padding: 0.25rem 0.5rem 1.1rem; }
+    .sidebar .brand b { font-size: 1.05rem; font-weight: 800; letter-spacing: 0.3px; }
+    .sidebar .brand b em { font-style: normal; color: var(--green); }
+
+    .nav-label {
+      font-size: 0.62rem; letter-spacing: 1.6px; text-transform: uppercase;
+      color: var(--muted); font-weight: 700; padding: 0.9rem 0.6rem 0.45rem;
+    }
+    .nav-item {
+      display: flex; align-items: center; gap: 0.65rem;
+      width: 100%; border: none; background: transparent; color: var(--muted);
+      font-family: inherit; font-size: 0.86rem; font-weight: 600;
+      padding: 0.6rem 0.7rem; border-radius: 11px; cursor: pointer;
+      transition: all 0.15s; text-align: left; margin-bottom: 2px;
+    }
+    .nav-item:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+    .nav-item.active { color: var(--green); background: var(--green-soft); border: 1px solid var(--green-border); }
+    .nav-item i { width: 17px; height: 17px; }
+    .nav-item .tag {
+      margin-left: auto; font-size: 0.58rem; font-weight: 800; padding: 0.1rem 0.45rem;
+      border-radius: 50px; background: linear-gradient(145deg, #f59e0b, #d97706); color: #1c1917;
+    }
+
+    .sidebar .spacer { flex: 1; }
+    .user-chip {
+      display: flex; align-items: center; gap: 0.6rem;
+      padding: 0.6rem; border-radius: 12px; border: 1px solid var(--border);
+      background: rgba(255,255,255,0.03);
+    }
+    .user-chip .avatar {
+      width: 34px; height: 34px; border-radius: 9px; flex-shrink: 0;
+      background: linear-gradient(145deg, #34d399, #0d9488);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 0.8rem; color: #04231a;
+    }
+    .user-chip .meta { overflow: hidden; }
+    .user-chip .meta b { display: block; font-size: 0.78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .user-chip .meta span { font-size: 0.65rem; color: var(--muted); }
+
+    /* ============ MAIN ============ */
+    .main-area { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .topbar {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 1.4rem 2rem 0.9rem;
+    }
+    .topbar h2 { font-size: 1.55rem; font-weight: 800; }
+    .topbar .crumb { font-size: 0.74rem; color: var(--muted); margin-top: 0.2rem; }
+    .topbar .crumb b { color: var(--green); font-weight: 600; }
+    .top-actions { display: flex; gap: 0.6rem; align-items: center; }
+    .icon-btn {
+      width: 38px; height: 38px; border-radius: 11px; border: 1px solid var(--border);
+      background: var(--glass); color: var(--muted); cursor: pointer;
+      display: flex; align-items: center; justify-content: center; position: relative;
+    }
+    .icon-btn:hover { color: var(--text); }
+    .icon-btn .dot {
+      position: absolute; top: 7px; right: 8px; width: 7px; height: 7px;
+      border-radius: 50%; background: var(--red); border: 2px solid var(--bg);
+    }
+
+    .content { padding: 0.5rem 2rem 2.5rem; display: flex; flex-direction: column; gap: 1.25rem; }
+
+    /* Cards */
+    .card {
+      background: var(--glass);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.3rem;
+      box-shadow: 0 16px 38px -18px rgba(0,0,0,0.6);
+    }
+    .card h3 { font-size: 0.98rem; font-weight: 700; }
+    .card .sub { font-size: 0.74rem; color: var(--muted); margin-top: 0.15rem; }
+    .card-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.1rem; }
+
+    /* Stat cards */
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1.1rem; }
+    .stat-card { position: relative; overflow: hidden; }
+    .stat-card .label { font-size: 0.66rem; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+    .stat-card .value { font-family: 'Fira Code', monospace; font-size: 1.7rem; font-weight: 700; margin-top: 0.5rem; }
+    .stat-card .icon-box {
+      position: absolute; top: 1.05rem; right: 1.05rem;
+      width: 38px; height: 38px; border-radius: 11px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .stat-card .trend {
+      display: inline-flex; align-items: center; gap: 0.25rem;
+      margin-top: 0.65rem; font-size: 0.66rem; font-weight: 700;
+      padding: 0.18rem 0.55rem; border-radius: 50px;
+    }
+    .trend.up { background: var(--green-soft); color: var(--green); }
+    .trend.neutral { background: rgba(255,255,255,0.06); color: var(--muted); }
+    .ib-green { background: var(--green-soft); color: var(--green); }
+    .ib-amber { background: var(--amber-soft); color: var(--amber); }
+    .ib-blue { background: rgba(96,165,250,0.12); color: var(--blue); }
+    .ib-red { background: var(--red-soft); color: var(--red); }
+
+    /* Dashboard grid */
+    .dash-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 1.25rem; }
+    @media (max-width: 980px) { .dash-grid { grid-template-columns: 1fr; } }
+
+    /* Chart */
+    .chart-wrap { display: flex; align-items: flex-end; gap: 5px; height: 210px; padding-top: 0.5rem; }
+    .chart-col { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 3px; height: 100%; }
+    .chart-bars { width: 100%; max-width: 26px; display: flex; flex-direction: column; justify-content: flex-end; flex: 1; gap: 2px; }
+    .bar-out { background: linear-gradient(180deg, #6ee7b7, #10b981); border-radius: 4px 4px 2px 2px; min-height: 2px; }
+    .bar-in { background: linear-gradient(180deg, #fcd34d, #f59e0b); border-radius: 4px 4px 2px 2px; min-height: 2px; opacity: 0.9; }
+    .chart-day { font-size: 0.56rem; color: var(--muted); font-family: 'Fira Code', monospace; }
+    .legend { display: flex; gap: 1rem; font-size: 0.7rem; color: var(--muted); }
+    .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 0.3rem; }
+
+    /* Channel cards */
+    .channels-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1.1rem; }
+    .channel-head { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 0.8rem; }
+    .channel-ico {
+      width: 40px; height: 40px; border-radius: 11px; font-size: 1.2rem;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+    }
+    .pill {
+      display: inline-flex; align-items: center; gap: 0.3rem;
+      font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;
+      padding: 0.22rem 0.6rem; border-radius: 50px; margin-left: auto;
+    }
+    .pill.ok { background: var(--green-soft); color: var(--green); border: 1px solid var(--green-border); }
+    .pill.warn { background: var(--amber-soft); color: var(--amber); border: 1px solid rgba(251,191,36,0.25); }
+    .pill.off { background: var(--red-soft); color: var(--red); border: 1px solid rgba(248,113,113,0.2); }
+    .pill.cfg { background: rgba(96,165,250,0.12); color: var(--blue); border: 1px solid rgba(96,165,250,0.25); }
+
+    /* Forms / buttons */
+    .form-group { margin-bottom: 1rem; }
+    .form-group label { display: block; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin-bottom: 0.4rem; }
+    .form-control {
+      width: 100%; background: rgba(0,0,0,0.32); border: 1px solid var(--border);
+      border-radius: 11px; padding: 0.7rem 0.9rem; color: var(--text);
+      font-family: inherit; font-size: 0.86rem; transition: all 0.15s;
+    }
+    .form-control:focus { outline: none; border-color: var(--green); box-shadow: 0 0 0 3px rgba(16,185,129,0.18); }
+    .font-mono { font-family: 'Fira Code', monospace; }
+
+    .btn {
+      background: linear-gradient(145deg, #34d399, #10b981); color: #04231a;
+      border: none; border-radius: 11px; padding: 0.65rem 1.1rem;
+      font-family: inherit; font-weight: 800; font-size: 0.82rem; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem;
+      transition: all 0.15s; box-shadow: 0 8px 18px -8px rgba(16,185,129,0.5);
+    }
+    .btn:hover { filter: brightness(1.07); transform: translateY(-1px); }
+    .btn.block { width: 100%; }
+    .btn.ghost { background: rgba(255,255,255,0.05); color: var(--text); border: 1px solid var(--border); box-shadow: none; }
+    .btn.ghost:hover { background: rgba(255,255,255,0.09); }
+    .btn.danger { background: var(--red-soft); color: var(--red); border: 1px solid rgba(248,113,113,0.25); box-shadow: none; }
+    .btn.danger:hover { background: var(--red); color: white; }
+    .btn-row { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+    .copy-row { display: flex; gap: 0.5rem; }
+    .copy-row .form-control { flex: 1; }
+
+    /* Tables */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    th { text-align: left; font-size: 0.64rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--border); }
+    td { padding: 0.75rem 0.8rem; border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: middle; }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+    .token-cell { font-family: 'Fira Code', monospace; font-size: 0.7rem; color: var(--green); max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; }
+    .btn-action { background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 0.35rem 0.5rem; cursor: pointer; }
+    .btn-action:hover { color: var(--text); }
+    .btn-action.del:hover { color: var(--red); border-color: rgba(248,113,113,0.3); }
+
+    /* QR / console */
+    .qr-container {
+      background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 13px;
+      padding: 1.4rem; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; min-height: 230px; text-align: center; margin-top: 1rem;
+    }
+    .qr-image { background: white; padding: 0.5rem; border-radius: 12px; width: 190px; height: 190px; margin-bottom: 0.9rem; }
+    .pairing-code-display {
+      font-family: 'Fira Code', monospace; font-size: 1.6rem; font-weight: 700; letter-spacing: 4px;
+      color: var(--green); padding: 0.7rem 1.4rem; background: rgba(0,0,0,0.5);
+      border-radius: 11px; border: 1px dashed var(--green); margin: 0.9rem 0;
+    }
+    .console-logs {
+      background: #040806; border: 1px solid rgba(255,255,255,0.05); border-radius: 13px;
+      padding: 1rem; font-family: 'Fira Code', monospace; font-size: 0.74rem;
+      height: 230px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.3rem;
+    }
+    .console-line { white-space: pre-wrap; line-height: 1.45; color: #cfe3d8; }
+    .console-line.success { color: #34d399; }
+    .console-line.warning { color: #fbbf24; }
+    .console-line.error { color: #f87171; }
+    .console-line.qr { color: #6ee7b7; }
+
+    /* Recent activity */
+    .activity-item { display: flex; align-items: center; gap: 0.8rem; padding: 0.65rem 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+    .activity-item:last-child { border-bottom: none; }
+    .activity-ico { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1rem; background: rgba(255,255,255,0.05); flex-shrink: 0; }
+    .activity-meta { min-width: 0; flex: 1; }
+    .activity-meta b { display: block; font-size: 0.78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .activity-meta span { font-size: 0.68rem; color: var(--muted); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .activity-time { font-size: 0.62rem; color: var(--muted); font-family: 'Fira Code', monospace; flex-shrink: 0; }
+
+    /* Channel mini status */
+    .ch-mini { display: flex; align-items: center; gap: 0.7rem; padding: 0.55rem 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+    .ch-mini:last-child { border-bottom: none; }
+    .ch-mini b { font-size: 0.8rem; flex: 1; }
+
+    /* Modal */
+    .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(5px); z-index: 200; align-items: center; justify-content: center; padding: 1rem; }
+    .modal.active { display: flex; }
+    .modal-content { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 18px; max-width: 460px; width: 100%; padding: 1.5rem; }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.3rem; }
+    .modal-header h3 { font-size: 1.05rem; }
+    .btn-close { background: transparent; border: none; color: var(--muted); cursor: pointer; }
+
+    /* Toast */
+    #notif {
+      position: fixed; bottom: 2rem; right: 2rem; padding: 0.9rem 1.3rem; border-radius: 12px;
+      font-weight: 600; font-size: 0.85rem; z-index: 1000; transform: translateY(160%);
+      transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    #notif.success { background: #0b2b20; border: 1px solid var(--green-border); color: var(--green); transform: translateY(0); }
+    #notif.error { background: #2b0f0f; border: 1px solid rgba(248,113,113,0.3); color: var(--red); transform: translateY(0); }
+
+    .page { display: none; }
+    .page.active { display: flex; flex-direction: column; gap: 1.25rem; }
+
+    /* Submenu (sub-abas + pills) estilo da referência */
+    .subtabs { display: flex; gap: 0.3rem; border-bottom: 1px solid var(--border); padding-bottom: 0.1rem; }
+    .subtab {
+      display: inline-flex; align-items: center; gap: 0.45rem;
+      background: transparent; border: none; border-bottom: 2px solid transparent;
+      color: var(--muted); font-family: inherit; font-size: 0.85rem; font-weight: 700;
+      padding: 0.6rem 0.9rem; cursor: pointer; margin-bottom: -1px;
+    }
+    .subtab i { width: 15px; height: 15px; }
+    .subtab:hover { color: var(--text); }
+    .subtab.active { color: var(--green); border-bottom-color: var(--green); }
+
+    .pillbar { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.25rem; }
+    .subpill {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      background: var(--glass); border: 1px solid var(--border); color: var(--muted);
+      font-family: inherit; font-size: 0.78rem; font-weight: 700;
+      padding: 0.45rem 0.85rem; border-radius: 50px; cursor: pointer;
+    }
+    .subpill i { width: 14px; height: 14px; }
+    .subpill:hover { color: var(--text); border-color: var(--green-border); }
+    .subpill.active { color: var(--green); background: var(--green-soft); border-color: var(--green-border); }
+
+    .subpage, .pillpage { display: flex; flex-direction: column; gap: 1.25rem; }
+    .subpage.hidden, .pillpage.hidden { display: none; }
+
+    /* Notificações dropdown */
+    .notif-panel {
+      position: absolute; right: 0; top: 48px; width: 320px; max-height: 400px; overflow-y: auto;
+      background: var(--bg-soft); border: 1px solid var(--border); border-radius: 14px;
+      box-shadow: 0 20px 45px -15px rgba(0,0,0,0.7); z-index: 300; padding: 0.5rem;
+    }
+    .notif-head { display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem; font-weight: 700; padding: 0.5rem 0.6rem 0.6rem; border-bottom: 1px solid var(--border); margin-bottom: 0.3rem; }
+    .notif-row { display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.55rem 0.6rem; border-radius: 9px; }
+    .notif-row:hover { background: rgba(255,255,255,0.03); }
+    .notif-row .ico { font-size: 1rem; }
+    .notif-row .body { min-width: 0; flex: 1; }
+    .notif-row .body b { font-size: 0.76rem; display: block; }
+    .notif-row .body span { font-size: 0.68rem; color: var(--muted); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .notif-empty { font-size: 0.74rem; color: var(--muted); text-align: center; padding: 1.5rem 0.5rem; }
+
+    @media (max-width: 860px) {
+      #app-shell { flex-direction: column; }
+      .sidebar { width: 100%; height: auto; min-height: 0; position: static; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 0.3rem; }
+      .sidebar .spacer, .user-chip, .nav-label { display: none; }
+      .content, .topbar { padding-left: 1rem; padding-right: 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ================= LOGIN (tela única) ================= -->
+  <div id="login-screen">
+    <div class="login-card">
+      <div class="login-brand">
+        <div class="glyph lg">Y</div>
+        <h1>Yummis <em style="font-style:normal;color:var(--green)">Gateway</em></h1>
+        <p>Plataforma omnichannel de atendimento &amp; disparos</p>
+      </div>
+      <div class="card">
+        <form id="login-form" onsubmit="handleLogin(event)">
+          <div class="form-group">
+            <label>Usuário</label>
+            <input type="text" id="login-username" class="form-control" placeholder="Digite seu usuário" required>
+          </div>
+          <div class="form-group">
+            <label>Senha</label>
+            <input type="password" id="login-password" class="form-control" placeholder="Digite sua senha" required>
+          </div>
+          <button type="submit" class="btn block">Entrar <i data-lucide="arrow-right"></i></button>
+        </form>
+        <p style="text-align:center; font-size:0.72rem; color:var(--muted); margin-top:1rem;">
+          Entrada única — o sistema identifica se você é administrador ou cliente.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= APP SHELL ================= -->
+  <div id="app-shell" class="hidden">
+
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="glyph">Y</div>
+        <b>Yummis<em>Gateway</em></b>
+      </div>
+
+      <div class="nav-label">Main Menu</div>
+      <button class="nav-item" data-page="dashboard" onclick="showPage('dashboard')">
+        <i data-lucide="layout-dashboard"></i> Dashboard
+      </button>
+      <button class="nav-item" data-page="channels" data-role="user" onclick="showPage('channels')">
+        <i data-lucide="share-2"></i> Canais <span class="tag">Novo</span>
+      </button>
+      <button class="nav-item" data-page="users" data-role="admin" onclick="showPage('users')">
+        <i data-lucide="users"></i> Usuários
+      </button>
+      <button class="nav-item" data-page="settings" data-role="user" onclick="showPage('settings')">
+        <i data-lucide="settings"></i> Configurações
+      </button>
+
+      <div class="nav-label">Account</div>
+      <button class="nav-item" onclick="logout()">
+        <i data-lucide="log-out"></i> Sair
+      </button>
+
+      <div class="spacer"></div>
+      <div class="user-chip">
+        <div class="avatar" id="chip-avatar">--</div>
+        <div class="meta">
+          <b id="chip-name">—</b>
+          <span id="chip-role">—</span>
+        </div>
+      </div>
+    </aside>
+
+    <div class="main-area">
+      <div class="topbar">
+        <div>
+          <h2 id="page-title">Dashboard</h2>
+          <div class="crumb">Yummis / <b id="page-crumb">Dashboard</b></div>
+        </div>
+        <div class="top-actions">
+          <div style="position:relative;">
+            <button class="icon-btn" title="Notificações" onclick="toggleNotifications()">
+              <i data-lucide="bell" style="width:17px"></i><span class="dot" id="notif-dot" style="display:none;"></span>
+            </button>
+            <div id="notif-panel" class="notif-panel hidden">
+              <div class="notif-head">Notificações <button class="btn-action" onclick="markNotifsRead()" title="Marcar lidas"><i data-lucide="check-check" style="width:13px"></i></button></div>
+              <div id="notif-list"></div>
+            </div>
+          </div>
+          <button class="icon-btn" title="Alternar tema" onclick="toggleTheme()"><i id="theme-icon" data-lucide="moon" style="width:17px"></i></button>
+        </div>
+      </div>
+
+      <main class="content">
+
+        <!-- ============ PAGE: DASHBOARD (user) ============ -->
+        <section id="page-dashboard" class="page active">
+          <div class="stats-grid" id="stat-cards">
+            <div class="card stat-card">
+              <div class="label">Mensagens Enviadas</div>
+              <div class="value" id="st-sent">0</div>
+              <span class="trend up"><i data-lucide="trending-up" style="width:11px"></i> bot + operador</span>
+              <div class="icon-box ib-green"><i data-lucide="send" style="width:18px"></i></div>
+            </div>
+            <div class="card stat-card">
+              <div class="label">Mensagens Recebidas</div>
+              <div class="value" id="st-recv">0</div>
+              <span class="trend up"><i data-lucide="inbox" style="width:11px"></i> todos os canais</span>
+              <div class="icon-box ib-amber"><i data-lucide="message-circle" style="width:18px"></i></div>
+            </div>
+            <div class="card stat-card">
+              <div class="label">Conversas</div>
+              <div class="value" id="st-conv">0</div>
+              <span class="trend neutral">leads atendidos</span>
+              <div class="icon-box ib-blue"><i data-lucide="users-round" style="width:18px"></i></div>
+            </div>
+            <div class="card stat-card">
+              <div class="label">Créditos Restantes</div>
+              <div class="value" id="st-credits">—</div>
+              <span class="trend neutral">disparos disponíveis</span>
+              <div class="icon-box ib-green"><i data-lucide="coins" style="width:18px"></i></div>
+            </div>
+          </div>
+
+          <div class="dash-grid">
+            <div class="card">
+              <div class="card-head">
+                <div>
+                  <h3>Uso da API</h3>
+                  <div class="sub">Mensagens por dia — últimos 14 dias</div>
+                </div>
+                <div class="legend">
+                  <span><i style="background:linear-gradient(180deg,#6ee7b7,#10b981)"></i>Enviadas</span>
+                  <span><i style="background:linear-gradient(180deg,#fcd34d,#f59e0b)"></i>Recebidas</span>
+                </div>
+              </div>
+              <div class="chart-wrap" id="usage-chart"></div>
+            </div>
+
+            <div class="card">
+              <div class="card-head">
+                <div>
+                  <h3>Canais</h3>
+                  <div class="sub">Status das conexões</div>
+                </div>
+              </div>
+              <div id="dash-channels"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <h3>Contatos Recentes</h3>
+                <div class="sub">Quem enviou mensagem para a sua conta conectada</div>
+              </div>
+              <button class="btn-action" onclick="loadContacts()" title="Atualizar"><i data-lucide="rotate-cw" style="width:13px"></i></button>
+            </div>
+            <div id="recent-contacts"><p class="sub">Nenhum contato ainda.</p></div>
+          </div>
+        </section>
+
+        <!-- ============ PAGE: CANAIS (user) ============ -->
+        <section id="page-channels" class="page">
+          <div class="channels-grid">
+
+            <!-- WhatsApp -->
+            <div class="card" style="grid-column: 1 / -1;">
+              <div class="channel-head">
+                <div class="channel-ico">💬</div>
+                <div>
+                  <h3>WhatsApp</h3>
+                  <div class="sub">Conexão real via Baileys rodando neste servidor</div>
+                </div>
+                <span id="whatsapp-badge" class="pill off">Desconectado</span>
+              </div>
+              <div id="whatsapp-actions" style="margin-bottom: 0.5rem;"></div>
+              <div id="whatsapp-qr-area" class="qr-container" style="display:none;"></div>
+            </div>
+
+            <!-- Telegram -->
+            <div class="card">
+              <div class="channel-head">
+                <div class="channel-ico">✈️</div>
+                <div>
+                  <h3>Telegram</h3>
+                  <div class="sub">Bot API (token do @BotFather)</div>
+                </div>
+                <span id="ch-pill-telegram" class="pill off">Desconectado</span>
+              </div>
+              <div class="form-group">
+                <label>Token do Bot</label>
+                <input type="password" id="tg-token" class="form-control font-mono" placeholder="123456:ABC-DEF...">
+              </div>
+              <div class="btn-row">
+                <button class="btn" onclick="connectTelegram()"><i data-lucide="plug" style="width:14px"></i> Conectar</button>
+                <button class="btn ghost" onclick="disconnectChannel('telegram')">Desconectar</button>
+              </div>
+              <p class="sub" id="tg-botname" style="margin-top:0.6rem;"></p>
+            </div>
+
+            <!-- Facebook -->
+            <div class="card">
+              <div class="channel-head">
+                <div class="channel-ico">📘</div>
+                <div>
+                  <h3>Facebook</h3>
+                  <div class="sub">Messenger via webhook de entrada</div>
+                </div>
+                <span id="ch-pill-facebook" class="pill off">Desconectado</span>
+              </div>
+              <div class="form-group">
+                <label>Page Token / credencial</label>
+                <input type="password" id="cfg-facebook" class="form-control font-mono" placeholder="Token da página">
+              </div>
+              <div class="btn-row">
+                <button class="btn" onclick="saveWebhookChannel('facebook')"><i data-lucide="link" style="width:14px"></i> Vincular</button>
+                <button class="btn ghost" onclick="disconnectChannel('facebook')">Desvincular</button>
+              </div>
+              <p class="sub" style="margin-top:0.6rem;">Webhook: <code class="font-mono" id="wh-facebook" style="color:var(--green); font-size:0.68rem;"></code></p>
+            </div>
+
+            <!-- Instagram -->
+            <div class="card">
+              <div class="channel-head">
+                <div class="channel-ico">📸</div>
+                <div>
+                  <h3>Instagram</h3>
+                  <div class="sub">Direct via webhook de entrada</div>
+                </div>
+                <span id="ch-pill-instagram" class="pill off">Desconectado</span>
+              </div>
+              <div class="form-group">
+                <label>Token / credencial</label>
+                <input type="password" id="cfg-instagram" class="form-control font-mono" placeholder="Token da conta">
+              </div>
+              <div class="btn-row">
+                <button class="btn" onclick="saveWebhookChannel('instagram')"><i data-lucide="link" style="width:14px"></i> Vincular</button>
+                <button class="btn ghost" onclick="disconnectChannel('instagram')">Desvincular</button>
+              </div>
+              <p class="sub" style="margin-top:0.6rem;">Webhook: <code class="font-mono" id="wh-instagram" style="color:var(--green); font-size:0.68rem;"></code></p>
+            </div>
+
+            <!-- X -->
+            <div class="card">
+              <div class="channel-head">
+                <div class="channel-ico">✖️</div>
+                <div>
+                  <h3>X (Twitter)</h3>
+                  <div class="sub">DMs via webhook de entrada</div>
+                </div>
+                <span id="ch-pill-x" class="pill off">Desconectado</span>
+              </div>
+              <div class="form-group">
+                <label>API Key / credencial</label>
+                <input type="password" id="cfg-x" class="form-control font-mono" placeholder="Bearer token do app">
+              </div>
+              <div class="btn-row">
+                <button class="btn" onclick="saveWebhookChannel('x')"><i data-lucide="link" style="width:14px"></i> Vincular</button>
+                <button class="btn ghost" onclick="disconnectChannel('x')">Desvincular</button>
+              </div>
+              <p class="sub" style="margin-top:0.6rem;">Webhook: <code class="font-mono" id="wh-x" style="color:var(--green); font-size:0.68rem;"></code></p>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <h3>Console do Gateway</h3>
+                <div class="sub">Eventos em tempo real da conexão WhatsApp / bot</div>
+              </div>
+              <button class="btn-action" onclick="fetchWhatsAppStatus()" title="Atualizar">
+                <i data-lucide="rotate-cw" style="width:14px;height:14px;"></i>
+              </button>
+            </div>
+            <div id="console-output" class="console-logs"></div>
+          </div>
+        </section>
+
+        <!-- ============ PAGE: CONFIGURAÇÕES (user) — com submenu ============ -->
+        <section id="page-settings" class="page">
+          <p class="sub" style="margin-top:-0.4rem;">Gerencie preferências da plataforma, acesso via API, webhooks e integrações externas.</p>
+
+          <div class="subtabs">
+            <button class="subtab active" data-sub="geral" onclick="showSub('geral')"><i data-lucide="settings-2"></i> Geral</button>
+            <button class="subtab" data-sub="avancado" onclick="showSub('avancado')"><i data-lucide="code-2"></i> Avançado</button>
+            <button class="subtab" data-sub="perfil" onclick="showSub('perfil')"><i data-lucide="user"></i> Perfil</button>
+          </div>
+
+          <!-- SUB: GERAL -->
+          <div class="subpage" data-sub="geral">
+            <div class="card">
+              <div class="card-head"><div><h3>Atendimento Automático</h3><div class="sub">Bot pausa quando um operador assume; volta ao encerrar</div></div></div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; max-width:520px;">
+                <div class="form-group" style="margin:0;"><label>Lembrete de inatividade (min)</label><input type="number" id="bot-reminder" class="form-control" min="1" placeholder="15"></div>
+                <div class="form-group" style="margin:0;"><label>Reset da conversa (min)</label><input type="number" id="bot-reset" class="form-control" min="1" placeholder="30"></div>
+              </div>
+              <div class="btn-row" style="margin-top:1rem;"><button class="btn" onclick="saveBotConfig()"><i data-lucide="save" style="width:14px"></i> Salvar tempos</button></div>
+            </div>
+          </div>
+
+          <!-- SUB: AVANÇADO (pills) -->
+          <div class="subpage hidden" data-sub="avancado">
+            <div class="pillbar">
+              <button class="subpill active" data-pill="api" onclick="showPill('api')"><i data-lucide="key-round"></i> API</button>
+              <button class="subpill" data-pill="webhook" onclick="showPill('webhook')"><i data-lucide="webhook"></i> Webhook</button>
+              <button class="subpill" data-pill="integ" onclick="showPill('integ')"><i data-lucide="plug"></i> Integrações</button>
+              <button class="subpill" data-pill="fluxo" onclick="showPill('fluxo')"><i data-lucide="git-branch"></i> Fluxo</button>
+              <button class="subpill" data-pill="db" onclick="showPill('db')"><i data-lucide="database"></i> Banco de dados</button>
+            </div>
+
+            <!-- PILL: API -->
+            <div class="pillpage" data-pill="api">
+              <div class="card">
+                <div class="card-head"><div><h3><i data-lucide="key-round" style="width:16px;vertical-align:-2px"></i> Chaves de API</h3><div class="sub">Acesso programático ao gateway (Yummis API). Envie no header Authorization: Bearer &lt;token&gt;.</div></div></div>
+                <div class="form-group">
+                  <label>API Key / Token</label>
+                  <div class="copy-row">
+                    <input type="text" id="user-token-input" class="form-control font-mono" style="font-size:0.76rem;" readonly>
+                    <button class="btn ghost" onclick="copyToken()" title="Copiar"><i data-lucide="copy" style="width:15px"></i></button>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label>Endpoint da API (detectado pelo endereço atual)</label>
+                  <div class="copy-row">
+                    <input type="text" id="user-endpoint-input" class="form-control font-mono" style="font-size:0.76rem;" readonly>
+                    <button class="btn ghost" onclick="copyEndpoint()" title="Copiar"><i data-lucide="copy" style="width:15px"></i></button>
+                  </div>
+                </div>
+                <div class="btn-row"><button class="btn ghost" onclick="regenerateToken()"><i data-lucide="refresh-cw" style="width:14px"></i> Gerar Novo Token</button></div>
+                <div style="margin-top:1.2rem; border-top:1px solid var(--border); padding-top:1rem; display:flex; flex-direction:column; gap:0.5rem;">
+                  <div style="display:flex; justify-content:space-between;"><span class="sub">Limite de Disparos</span><b class="font-mono" id="user-credits-display" style="font-size:0.85rem;">0</b></div>
+                  <div style="display:flex; justify-content:space-between;"><span class="sub">Data de Expiração</span><b id="user-expiration-display" style="font-size:0.85rem;">Nenhuma</b></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- PILL: WEBHOOK -->
+            <div class="pillpage hidden" data-pill="webhook">
+              <div class="card">
+                <div class="card-head"><div><h3><i data-lucide="webhook" style="width:16px;vertical-align:-2px"></i> Webhooks de entrada</h3><div class="sub">URLs para entregar mensagens de Facebook, Instagram e X ao gateway</div></div></div>
+                <div id="webhook-list"></div>
+              </div>
+            </div>
+
+            <!-- PILL: INTEGRAÇÕES -->
+            <div class="pillpage hidden" data-pill="integ">
+              <div class="card">
+                <div class="card-head"><div><h3><i data-lucide="plug" style="width:16px;vertical-align:-2px"></i> Integrações</h3><div class="sub">Status dos canais conectados</div></div>
+                <button class="btn ghost" onclick="showPage('channels')">Gerenciar canais</button></div>
+                <div id="integ-list"></div>
+              </div>
+            </div>
+
+            <!-- PILL: FLUXO -->
+            <div class="pillpage hidden" data-pill="fluxo">
+              <div class="card">
+                <div class="card-head"><div><h3><i data-lucide="git-branch" style="width:16px;vertical-align:-2px"></i> Fluxo do Bot</h3><div class="sub">Como o atendimento automático processa cada mensagem</div></div></div>
+                <div class="sub" style="line-height:1.7;">
+                  1️⃣ Mensagem recebida → registrada e enviada ao site (Contatos Recentes)<br>
+                  2️⃣ Cliente novo → fluxo de <b>cadastro</b> (nome + e-mail)<br>
+                  3️⃣ Cliente cadastrado → <b>menu</b> (catálogo / pedidos / sacola — consultando o banco)<br>
+                  4️⃣ "Falar com humano" → <b>atendente assume</b> e o bot pausa (sem consumir tokens)<br>
+                  5️⃣ Inatividade → lembrete e reset automáticos (configuráveis na aba Geral)<br>
+                  💰 Apenas as respostas do <b>bot</b> consomem tokens; do atendente são gratuitas.
+                </div>
+              </div>
+            </div>
+
+            <!-- PILL: BANCO DE DADOS -->
+            <div class="pillpage hidden" data-pill="db">
+              <div class="card">
+                <div class="card-head"><div><h3><i data-lucide="database" style="width:16px;vertical-align:-2px"></i> Banco de dados</h3><div class="sub">SQLite local do gateway</div></div></div>
+                <div id="db-info" class="sub">Carregando…</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- SUB: PERFIL -->
+          <div class="subpage hidden" data-sub="perfil">
+            <div class="card" style="max-width:560px;">
+              <div class="card-head"><div><h3><i data-lucide="user" style="width:16px;vertical-align:-2px"></i> Perfil</h3><div class="sub">Dados da sua conta no gateway</div></div></div>
+              <div style="display:flex; flex-direction:column; gap:0.7rem;">
+                <div style="display:flex; justify-content:space-between;"><span class="sub">Usuário</span><b id="prof-username">—</b></div>
+                <div style="display:flex; justify-content:space-between;"><span class="sub">Papel</span><b id="prof-role">Cliente</b></div>
+                <div style="display:flex; justify-content:space-between;"><span class="sub">Créditos</span><b class="font-mono" id="prof-credits">—</b></div>
+                <div style="display:flex; justify-content:space-between;"><span class="sub">Criado em</span><b id="prof-created">—</b></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ PAGE: USUÁRIOS (admin) ============ -->
+        <section id="page-users" class="page">
+          <div class="stats-grid">
+            <div class="card stat-card">
+              <div class="label">Total de Usuários</div>
+              <div class="value" id="ad-users">0</div>
+              <span class="trend up"><i data-lucide="user-plus" style="width:11px"></i> contas ativas</span>
+              <div class="icon-box ib-green"><i data-lucide="users" style="width:18px"></i></div>
+            </div>
+            <div class="card stat-card">
+              <div class="label">Mensagens Totais</div>
+              <div class="value" id="ad-msgs">0</div>
+              <span class="trend neutral">todo o histórico</span>
+              <div class="icon-box ib-amber"><i data-lucide="message-square" style="width:18px"></i></div>
+            </div>
+            <div class="card stat-card">
+              <div class="label">Conversas / Leads</div>
+              <div class="value" id="ad-leads">0</div>
+              <span class="trend neutral">todos os canais</span>
+              <div class="icon-box ib-blue"><i data-lucide="contact" style="width:18px"></i></div>
+            </div>
+            <div class="card stat-card">
+              <div class="label">Mensagens Hoje</div>
+              <div class="value" id="ad-today">0</div>
+              <span class="trend up"><i data-lucide="zap" style="width:11px"></i> em tempo real</span>
+              <div class="icon-box ib-green"><i data-lucide="activity" style="width:18px"></i></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <h3>Todos os Usuários</h3>
+                <div class="sub">Contas, tokens de API e limites de mensagens</div>
+              </div>
+              <button class="btn" onclick="openCreateModal()"><i data-lucide="user-plus" style="width:15px"></i> Novo Usuário</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Usuário</th><th>Token de API</th><th>Créditos</th><th>Expira em</th><th>Criado em</th><th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="users-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Modal criar/editar usuário -->
+  <div id="user-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-title">Novo Usuário</h3>
+        <button class="btn-close" onclick="closeModal()"><i data-lucide="x"></i></button>
+      </div>
+      <form onsubmit="submitUserForm(event)">
+        <input type="hidden" id="modal-user-id">
+        <div class="form-group">
+          <label>Usuário</label>
+          <input type="text" id="modal-username" class="form-control" required>
+        </div>
+        <div class="form-group">
+          <label>Senha <span id="modal-pass-hint" style="text-transform:none;font-weight:400;">(em branco = manter)</span></label>
+          <input type="password" id="modal-password" class="form-control">
+        </div>
+        <div class="form-group">
+          <label>Créditos de mensagens</label>
+          <input type="number" id="modal-tokens" class="form-control" required value="1000">
+        </div>
+        <div class="form-group">
+          <label>Data de expiração (opcional)</label>
+          <input type="date" id="modal-expiry" class="form-control">
+        </div>
+        <button type="submit" class="btn block">Salvar</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="notif"></div>
+
+  <script>
+    // ----------------------------------------------------------------
+    //  Base da API resolvida DINAMICAMENTE pelo endereço do navegador.
+    //  Sob o centralizador/ngrok o painel vive em /connection.
+    // ----------------------------------------------------------------
+    window.API_BASE = (function () {
+      var p = window.location.pathname || '';
+      return p.indexOf('/connection') >= 0
+        ? window.location.origin + '/connection'
+        : window.location.origin;
+    })();
+
+    (function () {
+      var _fetch = window.fetch.bind(window);
+      window.fetch = function (url, opts) {
+        if (typeof url === 'string' && url.charAt(0) === '/') url = window.API_BASE + url;
+        return _fetch(url, opts);
+      };
+    })();
+
+    function getSendMessageEndpoint() { return window.API_BASE + '/api/send-message'; }
+
+    // ---------------- Estado global ----------------
+    let currentRole = null;
+    let currentUser = null;
+    let whatsAppPollingInterval = null;
+    let dashTimer = null;
+
+    const CHANNEL_META = {
+      whatsapp:  { label: 'WhatsApp',  emoji: '💬' },
+      telegram:  { label: 'Telegram',  emoji: '✈️' },
+      facebook:  { label: 'Facebook',  emoji: '📘' },
+      instagram: { label: 'Instagram', emoji: '📸' },
+      x:         { label: 'X',         emoji: '✖️' },
+    };
+
+    setTimeout(() => lucide.createIcons(), 100);
+
+    function notify(msg, type = 'success') {
+      const el = document.getElementById('notif');
+      el.className = type;
+      el.innerText = msg;
+      setTimeout(() => { el.className = ''; }, 3200);
+    }
+
+    // ---------------- Navegação ----------------
+    const PAGE_TITLES = { dashboard: 'Dashboard', channels: 'Canais', settings: 'Configurações', users: 'Usuários' };
+
+    function showPage(name) {
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      const page = document.getElementById('page-' + name);
+      if (page) page.classList.add('active');
+      document.querySelectorAll('.nav-item[data-page]').forEach(n =>
+        n.classList.toggle('active', n.getAttribute('data-page') === name));
+      document.getElementById('page-title').innerText = PAGE_TITLES[name] || name;
+      document.getElementById('page-crumb').innerText = PAGE_TITLES[name] || name;
+      lucide.createIcons();
+    }
+
+    function applyRoleNav() {
+      document.querySelectorAll('.nav-item[data-role]').forEach(n => {
+        const role = n.getAttribute('data-role');
+        n.classList.toggle('hidden', role !== currentRole);
+      });
+    }
+
+    // ---------------- LOGIN unificado ----------------
+    async function handleLogin(e) {
+      e.preventDefault();
+      const u = document.getElementById('login-username').value;
+      const p = document.getElementById('login-password').value;
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: u, password: p })
+        });
+        if (!res.ok) return notify('Usuário ou senha incorretos.', 'error');
+        const data = await res.json();
+        currentRole = data.role;
+        currentUser = data.user || null;
+        enterApp(u);
+      } catch (err) {
+        notify('Erro de conexão com o servidor.', 'error');
+      }
+    }
+
+    function enterApp(username) {
+      // Esconde DE FATO a tela de login e mostra o shell
+      document.getElementById('login-screen').classList.add('hidden');
+      document.getElementById('app-shell').classList.remove('hidden');
+
+      const name = currentRole === 'admin' ? 'Administrador' : (currentUser ? currentUser.username : username);
+      document.getElementById('chip-name').innerText = name;
+      document.getElementById('chip-role').innerText = currentRole === 'admin' ? 'Administrador' : 'Cliente';
+      document.getElementById('chip-avatar').innerText = name.slice(0, 2).toUpperCase();
+
+      applyRoleNav();
+
+      if (currentRole === 'admin') {
+        showPage('users');
+        loadAdminStats();
+        fetchAdminUsers();
+        document.querySelector('.nav-item[data-page="dashboard"]').classList.add('hidden');
+      } else {
+        document.querySelector('.nav-item[data-page="dashboard"]').classList.remove('hidden');
+        showPage('dashboard');
+        loadUserProfile();
+        loadBotConfig();
+        loadChannels();
+        loadDashboard();
+        startWhatsAppPolling();
+        setTimeout(initNotifications, 600);
+        if (dashTimer) clearInterval(dashTimer);
+        dashTimer = setInterval(() => { loadDashboard(); loadChannels(); pollNotifications(); }, 8000);
+      }
+      notify(`Bem-vindo, ${name}!`);
+    }
+
+    function logout() {
+      currentUser = null; currentRole = null;
+      stopWhatsAppPolling();
+      if (dashTimer) clearInterval(dashTimer);
+      document.getElementById('login-form').reset();
+      document.getElementById('app-shell').classList.add('hidden');
+      document.getElementById('login-screen').classList.remove('hidden');
+      notify('Você saiu do painel.');
+    }
+
+    // ---------------- DASHBOARD (user) ----------------
+    async function loadDashboard() {
+      if (!currentUser) return;
+      try {
+        const res = await fetch(`/api/stats/${currentUser.id}`);
+        const s = await res.json();
+        document.getElementById('st-sent').innerText = s.totalSent.toLocaleString('pt-BR');
+        document.getElementById('st-recv').innerText = s.totalReceived.toLocaleString('pt-BR');
+        document.getElementById('st-conv').innerText = s.conversations.toLocaleString('pt-BR');
+        document.getElementById('st-credits').innerText = s.credits === null ? '∞' : s.credits.toLocaleString('pt-BR');
+        renderChart(s.perDay);
+      } catch (e) {}
+      loadContacts();
+    }
+
+    function renderChart(perDay) {
+      const wrap = document.getElementById('usage-chart');
+      const max = Math.max(1, ...perDay.map(d => d.in + d.out));
+      wrap.innerHTML = perDay.map((d, idx) => {
+        const hOut = Math.round((d.out / max) * 100);
+        const hIn = Math.round((d.in / max) * 100);
+        const label = d.date.slice(8, 10) + '/' + d.date.slice(5, 7);
+        return `
+          <div class="chart-col" title="${label} — enviadas: ${d.out} | recebidas: ${d.in}">
+            <div class="chart-bars">
+              <div class="bar-in" style="height:${hIn}%"></div>
+              <div class="bar-out" style="height:${hOut}%"></div>
+            </div>
+            <span class="chart-day">${idx % 2 === 0 ? label.slice(0, 2) : ''}</span>
+          </div>`;
+      }).join('');
+    }
+
+    async function loadContacts() {
+      if (!currentUser) return;
+      try {
+        const res = await fetch('/api/contacts/' + currentUser.id);
+        const contacts = await res.json();
+        const el = document.getElementById('recent-contacts');
+        if (!contacts.length) { el.innerHTML = '<p class="sub">Nenhum contato ainda. Envie uma mensagem para o número conectado.</p>'; return; }
+        el.innerHTML = contacts.map(c => {
+          const meta = CHANNEL_META[c.channel] || { label: c.channel, emoji: '📨' };
+          const status = c.bot_pausado
+            ? '<span class="pill warn" style="margin-left:0;">Atendente</span>'
+            : '<span class="pill ok" style="margin-left:0;">Bot</span>';
+          const nome = (c.nome && c.nome !== 'Novo contato') ? c.nome : c.telefone;
+          const prefix = c.last_dir === 'out' ? 'Você: ' : '';
+          return `
+            <div class="activity-item">
+              <div class="activity-ico" title="${meta.label}">${meta.emoji}</div>
+              <div class="activity-meta">
+                <b>${nome} <span style="color:var(--muted);font-weight:400;font-size:0.68rem;">· ${meta.label}</span></b>
+                <span>${prefix}${(c.last_text || '').replace(/</g, '&lt;').slice(0, 80)}</span>
+              </div>
+              <div style="display:flex; flex-direction:column; align-items:flex-end; gap:0.25rem;">
+                ${status}
+                <span class="activity-time">${(c.last_activity || '').slice(11, 16)}</span>
+              </div>
+            </div>`;
+        }).join('');
+      } catch (e) {}
+    }
+
+    // ---------------- NOTIFICAÇÕES ----------------
+    let notifSince = 0, notifItems = [], notifUnread = 0;
+
+    async function initNotifications() {
+      if (!currentUser || !currentUser.token) return;
+      try {
+        const res = await fetch('/api/inbox?since=0', { headers: { 'Authorization': 'Bearer ' + currentUser.token } });
+        const data = await res.json();
+        notifSince = data.lastId || 0; // baseline: só notifica o que chegar a partir de agora
+      } catch (e) {}
+    }
+
+    async function pollNotifications() {
+      if (!currentUser || !currentUser.token) return;
+      try {
+        const res = await fetch('/api/inbox?since=' + notifSince, { headers: { 'Authorization': 'Bearer ' + currentUser.token } });
+        const data = await res.json();
+        const incoming = (data.messages || []).filter(m => m.direcao === 'in');
+        if (incoming.length) {
+          notifItems = incoming.reverse().concat(notifItems).slice(0, 30);
+          notifUnread += incoming.length;
+        }
+        notifSince = data.lastId || notifSince;
+        const dot = document.getElementById('notif-dot');
+        if (dot) dot.style.display = notifUnread > 0 ? 'block' : 'none';
+      } catch (e) {}
+    }
+
+    function renderNotifs() {
+      const list = document.getElementById('notif-list');
+      if (!notifItems.length) { list.innerHTML = '<div class="notif-empty">Nenhuma mensagem nova.</div>'; return; }
+      list.innerHTML = notifItems.slice(0, 20).map(m => {
+        const meta = CHANNEL_META[m.channel] || { label: m.channel, emoji: '📨' };
+        return `<div class="notif-row"><span class="ico">${meta.emoji}</span><div class="body"><b>${m.nome || m.telefone} · ${meta.label}</b><span>${(m.texto || '').replace(/</g, '&lt;').slice(0, 64)}</span></div></div>`;
+      }).join('');
+    }
+
+    function toggleNotifications() {
+      const p = document.getElementById('notif-panel');
+      const willShow = p.classList.contains('hidden');
+      document.querySelectorAll('.notif-panel').forEach(x => x.classList.add('hidden'));
+      if (willShow) { p.classList.remove('hidden'); renderNotifs(); markNotifsRead(); }
+    }
+
+    function markNotifsRead() {
+      notifUnread = 0;
+      const dot = document.getElementById('notif-dot');
+      if (dot) dot.style.display = 'none';
+    }
+
+    // ---------------- TEMA (claro / escuro) ----------------
+    function applyTheme(theme) {
+      document.body.classList.toggle('light', theme === 'light');
+      const icon = document.getElementById('theme-icon');
+      if (icon) { icon.setAttribute('data-lucide', theme === 'light' ? 'sun' : 'moon'); lucide.createIcons(); }
+      localStorage.setItem('yummis_theme', theme);
+    }
+    function toggleTheme() {
+      const next = document.body.classList.contains('light') ? 'dark' : 'light';
+      applyTheme(next);
+      notify(next === 'light' ? 'Tema claro ativado' : 'Tema escuro ativado');
+    }
+    applyTheme(localStorage.getItem('yummis_theme') || 'dark');
+
+    // Fecha o dropdown ao clicar fora
+    document.addEventListener('click', (e) => {
+      const panel = document.getElementById('notif-panel');
+      if (panel && !panel.classList.contains('hidden') && !e.target.closest('.top-actions')) {
+        panel.classList.add('hidden');
+      }
+    });
+
+    // ---------------- CANAIS ----------------
+    function pillFor(status) {
+      if (status === 'CONNECTED') return ['ok', 'Conectado'];
+      if (status === 'CONNECTING') return ['warn', 'Pareando'];
+      if (status === 'CONFIGURED') return ['cfg', 'Vinculado'];
+      if (status === 'ERROR') return ['off', 'Erro'];
+      return ['off', 'Desconectado'];
+    }
+
+    async function loadChannels() {
+      if (!currentUser) return;
+      try {
+        const res = await fetch(`/api/channels/${currentUser.id}`);
+        const list = await res.json();
+
+        // Mini status no dashboard
+        const mini = document.getElementById('dash-channels');
+        mini.innerHTML = list.map(c => {
+          const meta = CHANNEL_META[c.channel];
+          const [cls, label] = pillFor(c.status);
+          return `<div class="ch-mini"><span style="font-size:1.05rem;">${meta.emoji}</span><b>${meta.label}</b><span class="pill ${cls}">${label}</span></div>`;
+        }).join('');
+
+        // Pills na página de canais
+        list.forEach(c => {
+          if (c.channel === 'whatsapp') return; // o badge do WhatsApp é controlado pelo polling
+          const pill = document.getElementById('ch-pill-' + c.channel);
+          if (pill) {
+            const [cls, label] = pillFor(c.status);
+            pill.className = 'pill ' + cls;
+            pill.innerText = label;
+          }
+          if (c.channel === 'telegram' && c.botName) {
+            document.getElementById('tg-botname').innerText = 'Bot vinculado: ' + c.botName;
+          }
+        });
+
+        // URLs de webhook por canal
+        ['facebook', 'instagram', 'x'].forEach(ch => {
+          const el = document.getElementById('wh-' + ch);
+          if (el) el.innerText = window.API_BASE + '/api/webhook/' + ch;
+        });
+      } catch (e) {}
+    }
+
+    async function connectTelegram() {
+      const token = document.getElementById('tg-token').value.trim();
+      try {
+        const res = await fetch(`/api/channels/${currentUser.id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ channel: 'telegram', action: 'connect', config: { botToken: token } })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          notify('Telegram conectado: ' + data.botName);
+          document.getElementById('tg-token').value = '';
+        } else {
+          notify(data.error || 'Falha ao conectar Telegram.', 'error');
+        }
+        loadChannels();
+      } catch (e) { notify('Erro de conexão.', 'error'); }
+    }
+
+    async function saveWebhookChannel(channel) {
+      const cfgInput = document.getElementById('cfg-' + channel);
+      try {
+        const res = await fetch(`/api/channels/${currentUser.id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ channel, action: 'save', config: { token: cfgInput ? cfgInput.value.trim() : '' } })
+        });
+        if (res.ok) notify(CHANNEL_META[channel].label + ' vinculado! Use o webhook exibido para entregar mensagens.');
+        else notify('Falha ao vincular canal.', 'error');
+        loadChannels();
+      } catch (e) { notify('Erro de conexão.', 'error'); }
+    }
+
+    async function disconnectChannel(channel) {
+      try {
+        await fetch(`/api/channels/${currentUser.id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ channel, action: 'disconnect' })
+        });
+        notify(CHANNEL_META[channel].label + ' desconectado.');
+        loadChannels();
+      } catch (e) { notify('Erro de conexão.', 'error'); }
+    }
+
+    // ---------------- PERFIL / TOKEN ----------------
+    async function loadUserProfile() {
+      if (!currentUser) return;
+      try {
+        const res = await fetch(`/api/user/profile/${currentUser.id}`);
+        const user = await res.json();
+        currentUser = user;
+        document.getElementById('user-token-input').value = user.token;
+        document.getElementById('user-endpoint-input').value = getSendMessageEndpoint();
+        document.getElementById('user-credits-display').innerText = user.tokensCount === null ? 'Ilimitado' : user.tokensCount;
+        document.getElementById('user-expiration-display').innerText = user.expirationDate
+          ? new Date(user.expirationDate).toLocaleDateString('pt-BR') : 'Nenhuma';
+      } catch (e) {}
+    }
+
+    async function regenerateToken() {
+      if (!confirm('Ao gerar uma nova API Key, a antiga será invalidada imediatamente. Continuar?')) return;
+      try {
+        const res = await fetch('/api/user/regenerate-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: currentUser.id })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          document.getElementById('user-token-input').value = data.token;
+          currentUser.token = data.token;
+          notify('Token de API regenerado!');
+        }
+      } catch (e) { notify('Erro ao regenerar token.', 'error'); }
+    }
+
+    function copyToken() {
+      const i = document.getElementById('user-token-input'); i.select();
+      document.execCommand('copy'); notify('Token copiado!');
+    }
+    function copyEndpoint() {
+      const i = document.getElementById('user-endpoint-input'); i.select();
+      document.execCommand('copy'); notify('Endpoint copiado!');
+    }
+
+    // ---------------- BOT CONFIG ----------------
+    async function loadBotConfig() {
+      try {
+        const res = await fetch('/api/bot/config');
+        const cfg = await res.json();
+        document.getElementById('bot-reminder').value = cfg.reminderMinutes;
+        document.getElementById('bot-reset').value = cfg.resetMinutes;
+      } catch (e) {}
+    }
+
+    async function saveBotConfig() {
+      const reminderMinutes = Number(document.getElementById('bot-reminder').value);
+      const resetMinutes = Number(document.getElementById('bot-reset').value);
+      try {
+        const res = await fetch('/api/bot/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reminderMinutes, resetMinutes })
+        });
+        if (res.ok) notify('Tempos do bot atualizados!');
+        else notify('Erro ao salvar configuração.', 'error');
+      } catch (e) { notify('Erro de conexão.', 'error'); }
+    }
+
+    // ---------------- SUBMENU de Configurações ----------------
+    function showSub(sub) {
+      document.querySelectorAll('#page-settings .subtab').forEach(t => t.classList.toggle('active', t.dataset.sub === sub));
+      document.querySelectorAll('#page-settings .subpage').forEach(p => p.classList.toggle('hidden', p.dataset.sub !== sub));
+      if (sub === 'avancado') { showPill('api'); loadSettingsExtras(); }
+      if (sub === 'perfil') loadProfileTab();
+      lucide.createIcons();
+    }
+
+    function showPill(pill) {
+      document.querySelectorAll('#page-settings .subpill').forEach(t => t.classList.toggle('active', t.dataset.pill === pill));
+      document.querySelectorAll('#page-settings .pillpage').forEach(p => p.classList.toggle('hidden', p.dataset.pill !== pill));
+      if (pill === 'db') loadDbInfo();
+      if (pill === 'webhook' || pill === 'integ') loadSettingsExtras();
+      lucide.createIcons();
+    }
+
+    async function loadSettingsExtras() {
+      if (!currentUser) return;
+      try {
+        const list = await (await fetch('/api/channels/' + currentUser.id)).json();
+        const wh = document.getElementById('webhook-list');
+        if (wh) wh.innerHTML = ['facebook', 'instagram', 'x'].map(ch => {
+          const meta = CHANNEL_META[ch];
+          return `<div class="ch-mini"><span style="font-size:1.05rem">${meta.emoji}</span><b>${meta.label}</b><code class="font-mono" style="color:var(--green);font-size:0.66rem;">${window.API_BASE}/api/webhook/${ch}</code></div>`;
+        }).join('');
+        const ig = document.getElementById('integ-list');
+        if (ig) ig.innerHTML = list.map(c => {
+          const meta = CHANNEL_META[c.channel]; const [cls, label] = pillFor(c.status);
+          return `<div class="ch-mini"><span style="font-size:1.05rem">${meta.emoji}</span><b>${meta.label}</b><span class="pill ${cls}">${label}</span></div>`;
+        }).join('');
+      } catch (e) {}
+    }
+
+    async function loadDbInfo() {
+      try {
+        const info = await (await fetch('/api/db-info')).json();
+        const el = document.getElementById('db-info');
+        el.innerHTML = `<div style="margin-bottom:0.7rem;">Arquivo: <code class="font-mono" style="color:var(--green);font-size:0.7rem;">${info.path}</code></div>` +
+          info.tables.map(t => `<div class="ch-mini"><b>${t.name}</b><span class="font-mono sub">${t.rows} registros</span></div>`).join('');
+      } catch (e) {}
+    }
+
+    function loadProfileTab() {
+      if (!currentUser) return;
+      document.getElementById('prof-username').innerText = currentUser.username || '—';
+      document.getElementById('prof-credits').innerText = currentUser.tokensCount === null ? 'Ilimitado' : currentUser.tokensCount;
+      document.getElementById('prof-created').innerText = currentUser.createdAt ? new Date(currentUser.createdAt).toLocaleDateString('pt-BR') : '—';
+    }
+
+    // ---------------- ADMIN ----------------
+    async function loadAdminStats() {
+      try {
+        const res = await fetch('/api/admin/stats');
+        const s = await res.json();
+        document.getElementById('ad-users').innerText = s.users;
+        document.getElementById('ad-msgs').innerText = s.messages.toLocaleString('pt-BR');
+        document.getElementById('ad-leads').innerText = s.leads;
+        document.getElementById('ad-today').innerText = s.messagesToday;
+      } catch (e) {}
+    }
+
+    async function fetchAdminUsers() {
+      try {
+        const res = await fetch('/api/admin/users');
+        const users = await res.json();
+        const tbody = document.getElementById('users-table-body');
+        tbody.innerHTML = users.map(u => `
+          <tr>
+            <td><b>${u.username}</b></td>
+            <td><span class="token-cell" title="${u.token}">${u.token}</span></td>
+            <td class="font-mono">${u.tokensCount === null ? '∞' : u.tokensCount}</td>
+            <td>${u.expirationDate ? new Date(u.expirationDate).toLocaleDateString('pt-BR') : '—'}</td>
+            <td>${u.createdAt ? new Date(u.createdAt).toLocaleDateString('pt-BR') : '—'}</td>
+            <td>
+              <div style="display:flex; gap:0.4rem;">
+                <button class="btn-action" onclick="openEditModal('${u.id}', '${u.username}', ${u.tokensCount}, '${u.expirationDate || ''}')" title="Editar">
+                  <i data-lucide="pencil" style="width:13px;height:13px;"></i>
+                </button>
+                <button class="btn-action del" onclick="deleteUser('${u.id}', '${u.username}')" title="Excluir">
+                  <i data-lucide="trash-2" style="width:13px;height:13px;"></i>
+                </button>
+              </div>
+            </td>
+          </tr>`).join('');
+        lucide.createIcons();
+      } catch (e) {}
+    }
+
+    function openCreateModal() {
+      document.getElementById('modal-title').innerText = 'Novo Usuário';
+      document.getElementById('modal-user-id').value = '';
+      document.getElementById('modal-username').value = '';
+      document.getElementById('modal-password').value = '';
+      document.getElementById('modal-password').required = true;
+      document.getElementById('modal-pass-hint').classList.add('hidden');
+      document.getElementById('modal-tokens').value = 1000;
+      document.getElementById('modal-expiry').value = '';
+      document.getElementById('user-modal').classList.add('active');
+      lucide.createIcons();
+    }
+
+    function openEditModal(id, username, tokens, expiry) {
+      document.getElementById('modal-title').innerText = 'Editar Usuário';
+      document.getElementById('modal-user-id').value = id;
+      document.getElementById('modal-username').value = username;
+      document.getElementById('modal-password').value = '';
+      document.getElementById('modal-password').required = false;
+      document.getElementById('modal-pass-hint').classList.remove('hidden');
+      document.getElementById('modal-tokens').value = tokens;
+      document.getElementById('modal-expiry').value = expiry ? expiry.slice(0, 10) : '';
+      document.getElementById('user-modal').classList.add('active');
+      lucide.createIcons();
+    }
+
+    function closeModal() { document.getElementById('user-modal').classList.remove('active'); }
+
+    async function submitUserForm(e) {
+      e.preventDefault();
+      const id = document.getElementById('modal-user-id').value;
+      const payload = {
+        username: document.getElementById('modal-username').value,
+        password: document.getElementById('modal-password').value || undefined,
+        tokensCount: Number(document.getElementById('modal-tokens').value),
+        expirationDate: document.getElementById('modal-expiry').value || null
+      };
+      try {
+        const res = id
+          ? await fetch(`/api/admin/users/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+          : await fetch('/api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (res.ok) {
+          notify(id ? 'Usuário atualizado!' : 'Usuário criado com sucesso!');
+          closeModal();
+          fetchAdminUsers();
+          loadAdminStats();
+        } else {
+          notify(data.error || 'Erro ao salvar usuário.', 'error');
+        }
+      } catch (e) { notify('Erro de conexão.', 'error'); }
+    }
+
+    async function deleteUser(id, username) {
+      if (!confirm(`Excluir o usuário "${username}"? A sessão WhatsApp e o token serão removidos.`)) return;
+      try {
+        const res = await fetch(`/api/admin/users/${id}`, { method: 'DELETE' });
+        if (res.ok) { notify('Usuário excluído.'); fetchAdminUsers(); loadAdminStats(); }
+      } catch (e) { notify('Erro ao excluir.', 'error'); }
+    }
+
+    // ---------------- WHATSAPP (Baileys) ----------------
+    function startWhatsAppPolling() {
+      stopWhatsAppPolling();
+      fetchWhatsAppStatus();
+      whatsAppPollingInterval = setInterval(fetchWhatsAppStatus, 2500);
+    }
+    function stopWhatsAppPolling() {
+      if (whatsAppPollingInterval) clearInterval(whatsAppPollingInterval);
+      whatsAppPollingInterval = null;
+    }
+
+    async function fetchWhatsAppStatus() {
+      if (!currentUser) return;
+      try {
+        const res = await fetch(`/api/user/whatsapp-status/${currentUser.id}`);
+        const data = await res.json();
+
+        const badge = document.getElementById('whatsapp-badge');
+        if (data.status === 'CONNECTED') { badge.className = 'pill ok'; badge.innerText = 'Conectado'; }
+        else if (data.status === 'CONNECTING') { badge.className = 'pill warn'; badge.innerText = 'Pareando'; }
+        else { badge.className = 'pill off'; badge.innerText = 'Desconectado'; }
+
+        const consoleEl = document.getElementById('console-output');
+        consoleEl.innerHTML = '';
+        (data.logs || []).forEach(log => {
+          const div = document.createElement('div');
+          div.className = 'console-line';
+          if (log.includes('SUCCESS')) div.classList.add('success');
+          if (log.includes('WARNING')) div.classList.add('warning');
+          if (log.includes('ERROR')) div.classList.add('error');
+          if (log.includes('QR')) div.classList.add('qr');
+          div.innerText = log;
+          consoleEl.appendChild(div);
+        });
+        consoleEl.scrollTop = consoleEl.scrollHeight;
+
+        const actionsEl = document.getElementById('whatsapp-actions');
+        const qrEl = document.getElementById('whatsapp-qr-area');
+
+        if (data.status === 'CONNECTED') {
+          actionsEl.innerHTML = `
+            <div style="font-size:0.85rem; margin-bottom:0.6rem;"><strong>Dispositivo pareado:</strong> +${data.phone}</div>
+            <button class="btn danger" onclick="disconnectWhatsApp()"><i data-lucide="power" style="width:14px"></i> Desconectar</button>`;
+          qrEl.style.display = 'none';
+        } else if (data.status === 'CONNECTING') {
+          actionsEl.innerHTML = `
+            <p class="sub" style="margin-bottom:0.6rem;">Conectando... escaneie o QR Code ou use o código de pareamento:</p>
+            <div class="btn-row">
+              <button class="btn ghost" onclick="disconnectWhatsApp()">Cancelar</button>
+              ${data.isSimulated ? '<button class="btn" onclick="simulateScan()">Simular Leitura de QR</button>' : ''}
+            </div>`;
+          qrEl.style.display = 'flex';
+          if (data.qrCode) {
+            qrEl.innerHTML = `
+              <img src="${data.qrCode}" class="qr-image" alt="QR Code">
+              <span class="sub">Aponte a câmera do celular (WhatsApp &gt; Aparelhos Conectados).</span>
+              <div style="width:100%; border-top:1px solid var(--border); margin-top:1rem; padding-top:1rem;">
+                <span class="sub" style="font-weight:700; display:block; margin-bottom:0.5rem;">Alternativa: parear via telefone</span>
+                <div class="copy-row">
+                  <input type="text" id="phone-pair-input" class="form-control" style="font-size:0.8rem;" placeholder="Ex: 5511999999999">
+                  <button class="btn" onclick="requestPairingCode()">Pedir Código</button>
+                </div>
+              </div>`;
+          } else if (data.pairingCode) {
+            qrEl.innerHTML = `
+              <span class="sub">Código de pareamento:</span>
+              <div class="pairing-code-display">${data.pairingCode}</div>
+              <span class="sub">No celular: Aparelhos Conectados &gt; Conectar com número de telefone.</span>`;
+          } else {
+            qrEl.innerHTML = '<div class="sub">Aguardando geração de credenciais...</div>';
+          }
+        } else {
+          actionsEl.innerHTML = `<button class="btn" onclick="connectWhatsApp()"><i data-lucide="play" style="width:14px"></i> Iniciar Conexão WhatsApp</button>`;
+          qrEl.style.display = 'none';
+        }
+        lucide.createIcons();
+      } catch (err) {}
+    }
+
+    async function connectWhatsApp() {
+      try {
+        const res = await fetch('/api/user/whatsapp-connect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: currentUser.id })
+        });
+        if (res.ok) { notify('Conexão WhatsApp iniciada!'); fetchWhatsAppStatus(); }
+      } catch (e) { notify('Erro de conexão.', 'error'); }
+    }
+
+    async function disconnectWhatsApp() {
+      if (!confirm('Deseja desconectar esta sessão do WhatsApp?')) return;
+      try {
+        const res = await fetch('/api/user/whatsapp-disconnect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: currentUser.id })
+        });
+        if (res.ok) { notify('WhatsApp desconectado.'); fetchWhatsAppStatus(); }
+      } catch (e) { notify('Erro ao desconectar.', 'error'); }
+    }
+
+    async function requestPairingCode() {
+      const phoneInput = document.getElementById('phone-pair-input');
+      const phone = phoneInput ? phoneInput.value.trim() : '';
+      if (!phone) return notify('Digite o telefone no formato 5511999999999', 'error');
+      try {
+        const res = await fetch('/api/user/whatsapp-pair', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: currentUser.id, phone })
+        });
+        const data = await res.json();
+        if (res.ok) notify('Código de pareamento gerado!');
+        else notify(data.error || 'Falha ao gerar código.', 'error');
+      } catch (e) { notify('Erro de conexão.', 'error'); }
+    }
+
+    async function simulateScan() {
+      try {
+        await fetch('/api/user/whatsapp-simscan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: currentUser.id })
+        });
+        fetchWhatsAppStatus();
+      } catch (e) {}
+    }
+  </script>
+</body>
+</html>

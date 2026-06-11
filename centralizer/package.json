@@ -1,0 +1,14 @@
+{
+  "name": "yummis-centralizer",
+  "version": "1.0.0",
+  "description": "Servidor centralizador: roteia /sales (frontend) e /connection (gateway) numa única origem para exposição via ngrok.",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "http-proxy-middleware": "^3.0.3"
+  }
+}

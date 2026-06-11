@@ -1,0 +1,6 @@
+{
+  "name": "n8n WhatsApp Chatbot Architect",
+  "description": "Plataforma interativa para design, simulação e exportação de fluxos de chatbot n8n e e-commerce via WhatsApp (Evolution API).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

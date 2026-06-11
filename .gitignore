@@ -1,0 +1,31 @@
+# Dependências
+node_modules/
+
+# Builds / saída
+dist/
+build/
+coverage/
+
+# Logs
+*.log
+logs/
+
+# Variáveis de ambiente (mantém apenas os exemplos)
+.env
+.env.*
+!.env.example
+
+# ---- Backend: dados sensíveis e gerados (NÃO versionar) ----
+# Credenciais de sessão do WhatsApp (Baileys)
+backend/auth/
+# Banco de dados SQLite gerado em runtime
+backend/db/
+# Banco JSON legado
+backend/db.json
+backend/db.json.migrated
+
+# Sistema operacional / editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
