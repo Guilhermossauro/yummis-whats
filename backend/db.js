@@ -42,6 +42,7 @@ ensureColumn('leads', 'email', 'email VARCHAR(160)');                 // captura
 ensureColumn('leads', 'last_activity', 'last_activity VARCHAR(40)');  // ISO da última interação
 ensureColumn('leads', 'channel', "channel VARCHAR(20) DEFAULT 'whatsapp'");        // canal de origem do lead
 ensureColumn('messages_log', 'channel', "channel VARCHAR(20) DEFAULT 'whatsapp'"); // canal de origem da mensagem
+ensureColumn('messages_log', 'bot_processed', 'bot_processed INTEGER DEFAULT 0');  // trava anti-resposta duplicada entre abas
 
 // Conexões de canais de mensagem por usuário (WhatsApp, Telegram, Facebook, Instagram, X)
 db.exec(`

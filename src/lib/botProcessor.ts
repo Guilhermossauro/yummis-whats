@@ -1,3 +1,5 @@
+import type { FlowBlock } from '../types';
+
 /**
  * botProcessor.ts — Fluxo de atendimento guiado, processado NA PLATAFORMA.
  *
@@ -24,6 +26,8 @@ export interface BotProduct {
 export interface BotContext {
   products?: BotProduct[];
   leadName?: string;
+  registered?: boolean;
+  flowBlocks?: FlowBlock[];
 }
 
 export type BotReply =
@@ -36,25 +40,27 @@ export interface BotState {
   errors: number;
   registered: boolean;
   pendingProduct?: string | null;
+  flowBlockId?: string | null;
 }
 
 export interface BotResult {
   replies: BotReply[];
   nextState: BotState;
   action?: 'pause_bot';
+  effects?: Array<{ type: 'register_lead'; data: { nome: string; email: string } }>;
 }
 
 export const PASSPHRASE_PREFIX = '#YMS:'; // marca o produto no link compartilhável
 const MAX_ERRORS = 3;
 
 const t = (text: string): BotReply => ({ type: 'text', text });
-const norm = (s: string) => (s || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+const norm = (s: string) => (s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 const isYes = (s: string) => /\b(sim|s|isso|confirmo|confirmar|ok|certo|correto|pode|claro|positivo|yes)\b/.test(norm(s));
 const isNo = (s: string) => /\b(nao|n|negativo|errado|incorreto|editar|corrigir|mudar|alterar)\b/.test(norm(s));
 const isMedia = (s: string) => /^\s*\[(áudio|audio|imagem|image|foto|sticker|figurinha|vídeo|video|mídia|midia|documento)\]/i.test(s || '');
 
-function initial(): BotState {
-  return { step: 'start', data: {}, errors: 0, registered: false, pendingProduct: null };
+function initial(registered = false): BotState {
+  return { step: 'start', data: {}, errors: 0, registered, pendingProduct: null };
 }
 
 function findProduct(input: string, products?: BotProduct[]): BotProduct | null {
@@ -92,8 +98,94 @@ function findByCode(code: string | null | undefined, products?: BotProduct[]): B
   return products?.find((p) => p.codigo.toLowerCase() === code.toLowerCase()) || null;
 }
 
+function isGreeting(input: string) {
+  const n = norm(input);
+  return ['oi', 'ola', 'menu', 'inicio', 'bom dia', 'boa tarde', 'boa noite', 'comecar', 'ajuda'].some((g) => n.includes(g));
+}
+
+function optionMatches(input: string, block: FlowBlock) {
+  const n = norm(input);
+  if (block.optionType === 'numeric') {
+    const num = Number.parseInt(n, 10);
+    if (!Number.isNaN(num) && num >= 1 && num <= block.options.length) {
+      return block.options[num - 1];
+    }
+  }
+
+  const matchType = block.keywordMatchType || 'exact';
+  return block.options.find((option) => {
+    const triggers = option.trigger.split(',').map(norm).filter(Boolean);
+    const labels = option.label
+      .split(/\s+/)
+      .map((word) => norm(word.replace(/[^a-zA-Z0-9]/g, '')))
+      .filter((word) => word.length >= 3);
+    const candidates = [...triggers, ...labels];
+    return candidates.some((candidate) => matchType === 'contains'
+      ? n.includes(candidate) || candidate.includes(n)
+      : n === candidate);
+  }) || null;
+}
+
+function globalFlowBlock(input: string, flowBlocks: FlowBlock[]) {
+  const n = norm(input);
+  return flowBlocks.find((block) => {
+    const id = norm(block.id);
+    const title = norm(block.title);
+    if (n === id || (id.length > 3 && n.includes(id)) || (title.length > 3 && title.includes(n))) return true;
+    if (block.id === 'catalogo' && ['catalogo', 'produtos', 'colecao', 'ver produtos'].some((word) => n.includes(word))) return true;
+    if (block.id === 'carrinho' && ['carrinho', 'sacola', 'itens'].some((word) => n.includes(word))) return true;
+    if (block.id === 'faturamento' && ['finalizar', 'fechar', 'faturamento', 'pagar', 'checkout', 'concluir'].some((word) => n.includes(word))) return true;
+    if (block.id === 'suporte' && ['suporte', 'humano', 'atendente'].some((word) => n.includes(word))) return true;
+    return false;
+  }) || null;
+}
+
+function flowReply(block: FlowBlock, products: BotProduct[]): BotReply {
+  let text = block.message || '';
+  if (block.type === 'options' && block.options.length) {
+    const list = block.optionType === 'numeric'
+      ? block.options.map((option, index) => `*${index + 1}.* ${option.label}`).join('\n')
+      : block.options.map((option) => `👉 Digite *"${option.trigger.split(',')[0]}"* para: ${option.label}`).join('\n');
+    text += `\n\n${list}`;
+  }
+  if (block.id === 'catalogo') {
+    if (!products.length) return t(`${text}\n\nNosso catálogo está sendo atualizado, volte em breve! 😉`);
+    const list = products
+      .map((p) => `• *[${p.codigo}]* ${p.nome} — R$ ${Number(p.preco).toFixed(2)}${p.estoque > 0 ? '' : ' (esgotado)'}`)
+      .join('\n');
+    text += `\n\n${list}\n\n📷 Envie o *código* de um produto para ver foto e detalhes.`;
+  }
+  return t(text);
+}
+
+function processConfiguredFlow(input: string, state: BotState, flowBlocks: FlowBlock[], products: BotProduct[]): BotResult | null {
+  if (!flowBlocks.length) return null;
+  const start = flowBlocks.find((block) => block.isStarting) || flowBlocks.find((block) => block.id === 'boas_vindas') || flowBlocks[0];
+  const current = flowBlocks.find((block) => block.id === state.flowBlockId) || start;
+  let target: FlowBlock | null = null;
+
+  if (isGreeting(input)) {
+    target = start;
+  } else if (current.type === 'options') {
+    const matched = optionMatches(input, current);
+    if (matched) target = flowBlocks.find((block) => block.id === matched.destinationBlockId) || null;
+  }
+
+  if (!target) target = globalFlowBlock(input, flowBlocks);
+  if (!target) return null;
+
+  return {
+    replies: [flowReply(target, products)],
+    nextState: { ...state, step: 'menu', flowBlockId: target.id, errors: 0 },
+    action: target.actionType === 'pause_bot' ? 'pause_bot' : undefined,
+  };
+}
+
 export function processBotMessage(input: string, prev: BotState | undefined, ctx: BotContext = {}): BotResult {
-  let state: BotState = prev ? { ...prev } : initial();
+  let state: BotState = prev ? { ...prev } : initial(!!ctx.registered);
+  if (ctx.registered && !state.registered) {
+    state = { ...state, registered: true };
+  }
   const products = ctx.products || [];
 
   // Helper: registra erro -> após 3, encaminha para humano
@@ -121,7 +213,7 @@ export function processBotMessage(input: string, prev: BotState | undefined, ctx
     if (!state.registered) {
       return {
         replies: [t(
-          `Que ótima escolha! 😍 Para seguir com *${product.nome}*, primeiro preciso te *cadastrar* no sistema.\n\n` +
+          `Que ótima escolha! 😍 Para seguir com *${product.nome}*, antes preciso realizar seu *cadastro* no sistema.\n\n` +
           `Qual é o seu *nome completo*?`
         )],
         nextState: { ...state, step: 'reg_nome' },
@@ -131,6 +223,11 @@ export function processBotMessage(input: string, prev: BotState | undefined, ctx
       replies: [productCard(product), t(`Você *confirma* o interesse em *${product.nome}*? (responda *sim* ou *não*)`)],
       nextState: { ...state, step: 'confirm_product' },
     };
+  }
+
+  if (state.step === 'start' || state.step === 'menu') {
+    const configured = processConfiguredFlow(input, state, ctx.flowBlocks || [], products);
+    if (configured) return configured;
   }
 
   // ------ Máquina de estados ------
@@ -166,11 +263,13 @@ export function processBotMessage(input: string, prev: BotState | undefined, ctx
           return {
             replies: [...base, productCard(prod), t(`Você *confirma* o interesse em *${prod.nome}*? (*sim* / *não*)`)],
             nextState: { ...state, step: 'confirm_product', registered: true, errors: 0 },
+            effects: [{ type: 'register_lead', data: { nome: state.data.nome || '', email: state.data.email || '' } }],
           };
         }
         return {
           replies: [...base, t('Como posso te ajudar? Envie o *código* de um produto ou *catálogo*.')],
           nextState: { ...state, step: 'menu', registered: true, errors: 0 },
+          effects: [{ type: 'register_lead', data: { nome: state.data.nome || '', email: state.data.email || '' } }],
         };
       }
       if (isNo(input)) {
@@ -203,7 +302,7 @@ export function processBotMessage(input: string, prev: BotState | undefined, ctx
     default: {
       // start / menu — saudação e ajuda
       const n = norm(input);
-      if (['oi', 'ola', 'menu', 'inicio', 'bom dia', 'boa tarde', 'boa noite', 'comecar'].some((g) => n.includes(g))) {
+      if (isGreeting(input)) {
         return {
           replies: [t(
             `Olá! 👋 Bem-vindo à *Moda Express*!\n\n` +

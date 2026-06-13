@@ -59,6 +59,15 @@ export default function AdminChat({
     return new Date(isoString).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   };
 
+  const cleanMessageText = (text: string) => text.replace(/^\[operador\]\s*/i, '');
+
+  const deliveryLabel = (msg: SQLMessageLog) => {
+    if (msg.direcao !== 'out') return 'Cliente';
+    if (msg.delivery_status === 'sending') return '✓ Enviando ao Gateway';
+    if (msg.delivery_status === 'failed') return '⚠ Falha no envio';
+    return '✓✓ Enviado ao cliente';
+  };
+
   const getProductDetails = (prodId: string) => {
     return products.find(p => p.id === prodId);
   };
@@ -124,7 +133,7 @@ export default function AdminChat({
                   </div>
                   {lastMsg && (
                     <p className="text-[10px] text-slate-400 font-sans italic truncate mt-1 w-full max-w-[200px]">
-                      {lastMsg.direcao === 'out' ? 'Lojista: ' : ''}{lastMsg.texto}
+                      {lastMsg.direcao === 'out' ? `${deliveryLabel(lastMsg)}: ` : ''}{cleanMessageText(lastMsg.texto)}
                     </p>
                   )}
                 </button>
@@ -195,18 +204,13 @@ export default function AdminChat({
                           ? 'bg-indigo-650 text-white rounded-tr-none' 
                           : 'bg-slate-800 text-slate-100 rounded-tl-none border border-white/5'
                       }`}>
-                        {msg.operator_name && (
-                          <div className="font-extrabold text-[9px] uppercase tracking-wider text-indigo-350 mb-1.5 border-b border-white/10 pb-1">
-                            👤 <strong>{msg.operator_name.split('@')[0].split(' ')[0]}</strong>
-                          </div>
-                        )}
                         {/* Preserve layout breaks but replace formatting brackets for preview elegance */}
                         <p className="whitespace-pre-wrap select-all selection:bg-slate-700">
-                          {msg.texto}
+                          {cleanMessageText(msg.texto)}
                         </p>
                       </div>
                       <span className="text-[8px] text-slate-500 font-mono mt-0.5 ml-1">
-                        {isOut ? 'Enviada' : 'Cliente'}
+                        {deliveryLabel(msg)}
                         {msg.channel && (
                           <span style={{ color: channelMeta(msg.channel).color }}> • {channelMeta(msg.channel).emoji} {channelMeta(msg.channel).label}</span>
                         )}

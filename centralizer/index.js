@@ -47,6 +47,9 @@ if (!fs.existsSync(path.join(FRONT_DIST, 'index.html'))) {
   console.warn('    (bash)        VITE_BASE=/sales/ npm run build');
 }
 app.use('/sales', express.static(FRONT_DIST));
+// Também serve assets na raiz para evitar tela branca se alguém gerar o build
+// padrão do Vite (com /assets/), em vez do build com base /sales/.
+app.use('/assets', express.static(path.join(FRONT_DIST, 'assets')));
 // Fallback SPA dentro de /sales
 app.get('/sales/*', (req, res) => res.sendFile(path.join(FRONT_DIST, 'index.html')));
 

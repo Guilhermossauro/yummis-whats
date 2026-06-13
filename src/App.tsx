@@ -31,8 +31,9 @@ import AdminSqlTerminal from './components/AdminSqlTerminal';
 import ChatSimulator from './components/ChatSimulator';
 import SuperAdminPanel from './components/SuperAdminPanel';
 import AdminCustomerProfiles from './components/AdminCustomerProfiles';
+import BotFlowBuilder from './components/BotFlowBuilder';
 
-import { SQLProduct, SQLLead, SQLCart, SQLOrder, SQLMessageLog, WhatsAppConfig, SQLSeller, SQLEmployee } from './types';
+import { SQLProduct, SQLLead, SQLCart, SQLOrder, SQLMessageLog, WhatsAppConfig, SQLSeller, SQLEmployee, FlowBlock } from './types';
 import { PRODUCTS } from './data/products';
 import { getSendMessageURL, getGatewayBaseURL, isGatewayMode } from './lib/gateway';
 import { processBotMessage, BotProduct, BotState } from './lib/botProcessor';
@@ -47,10 +48,12 @@ export default function App() {
   });
 
   // 2. Tab selection
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'crm' | 'catalog' | 'chat' | 'simulator' | 'settings' | 'sqlite' | 'customer_profiles'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'crm' | 'catalog' | 'chat' | 'simulator' | 'settings' | 'sqlite' | 'customer_profiles' | 'flow'>('dashboard');
 
   // Tema (claro / escuro) — persistido e aplicado no <html>
   const [dark, setDark] = useState<boolean>(() => document.documentElement.classList.contains('dark'));
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
   const toggleTheme = () => {
     setDark(prev => {
       const next = !prev;
@@ -254,6 +257,12 @@ export default function App() {
       } catch { return []; }
     };
 
+    const readFlow = (): FlowBlock[] => {
+      try {
+        return JSON.parse(localStorage.getItem('sql_bot_flow') || '[]');
+      } catch { return []; }
+    };
+
     // PROCESSAMENTO DO BOT (na plataforma) + envio da resposta pelo gateway
     const runBotFor = async (m: any) => {
       const stateKey = `gw${m.lead_id}`;
@@ -261,9 +270,22 @@ export default function App() {
       const result = processBotMessage(m.texto, botStateRef.current[stateKey], {
         products: readProducts(),
         leadName: firstName,
+        registered: !!m.cadastrado,
+        flowBlocks: readFlow(),
       });
       botStateRef.current[stateKey] = result.nextState;
       localStorage.setItem('gw_bot_state', JSON.stringify(botStateRef.current));
+
+      const registerEffect = result.effects?.find((effect) => effect.type === 'register_lead');
+      if (registerEffect) {
+        const { nome, email } = registerEffect.data;
+        setLeads(prev => prev.map(l => l.id === stateKey ? { ...l, nome: nome || l.nome, email, cadastrado: 1 } : l));
+        fetch(`${base}/api/bot/register-lead`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ phone: m.telefone, channel: m.channel, name: nome, email }),
+        }).catch(() => {});
+      }
 
       // Ação de handoff: pausa o bot no gateway (atendente assume)
       if (result.action === 'pause_bot') {
@@ -277,15 +299,64 @@ export default function App() {
 
       // Envia as respostas que o BOT montou (gateway só entrega; actor=bot debita).
       // Suporta texto e imagem (card de produto com foto + ficha).
-      for (const reply of result.replies) {
+      for (const [replyIndex, reply] of result.replies.entries()) {
         const payload = reply.type === 'image'
           ? { to: m.telefone, channel: m.channel || 'whatsapp', image: reply.image, caption: reply.caption, actor: 'bot' }
           : { to: m.telefone, channel: m.channel || 'whatsapp', message: reply.text, actor: 'bot' };
-        await fetch(`${base}/api/gateway/send`, {
+        const pendingId = `gw_bot_pending_${m.id || m.lead_id}_${replyIndex}_${Date.now()}`;
+        const pendingText = reply.type === 'image' ? `[foto] ${reply.caption || ''}`.trim() : reply.text;
+        setMessages(prev => [...prev, {
+          id: pendingId,
+          lead_id: stateKey,
+          direcao: 'out',
+          texto: pendingText,
+          data_envio: new Date().toISOString(),
+          channel: m.channel,
+          delivery_status: 'sending',
+        } as SQLMessageLog]);
+        try {
+          const sendRes = await fetch(`${base}/api/gateway/send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify(payload),
+          });
+          const sendData = await sendRes.json().catch(() => ({}));
+          if (!sendRes.ok) {
+            const fallback = `erro ${sendRes.status}`;
+            const reason = sendData?.error || fallback;
+            console.error('[Gateway] Falha ao enviar resposta automática', { reason, payload });
+            setMessages(prev => prev.map(msg => msg.id === pendingId ? { ...msg, delivery_status: 'failed' } : msg));
+          } else {
+            setMessages(prev => prev.map(msg => msg.id === pendingId ? {
+              ...msg,
+              id: sendData?.message?.id ? `gw_msg_${sendData.message.id}` : msg.id,
+              texto: sendData?.message?.texto || msg.texto,
+              data_envio: sendData?.message?.data_envio || msg.data_envio,
+              delivery_status: 'sent',
+            } : msg));
+          }
+        } catch (err) {
+          const reason = err instanceof Error ? err.message : 'gateway indisponível';
+          console.error('[Gateway] Falha ao acionar envio automático', { reason, payload });
+          setMessages(prev => prev.map(msg => msg.id === pendingId ? { ...msg, delivery_status: 'failed' } : msg));
+        }
+      }
+    };
+
+    const claimBotMessage = async (m: any) => {
+      if (!m.id) return true;
+      try {
+        const res = await fetch(`${base}/api/bot/claim-message`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify(payload),
-        }).catch(() => {});
+          body: JSON.stringify({ messageId: m.id }),
+        });
+        if (res.status === 404) return true;
+        if (!res.ok) return true;
+        const data = await res.json();
+        return !!data.claimed;
+      } catch {
+        return true;
       }
     };
 
@@ -305,7 +376,7 @@ export default function App() {
             const existing = next.find(l => l.id === leadId);
             if (existing) {
               next = next.map(l => l.id === leadId
-                ? { ...l, nome: m.nome || l.nome, bot_pausado: m.bot_pausado ?? l.bot_pausado, channel: m.channel, ultimo_gatilho: new Date().toISOString() }
+                ? { ...l, nome: m.nome || l.nome, bot_pausado: m.bot_pausado ?? l.bot_pausado, cadastrado: m.cadastrado ?? l.cadastrado, email: m.email ?? l.email, channel: m.channel, ultimo_gatilho: new Date().toISOString() }
                 : l);
             } else {
               next = [...next, {
@@ -315,6 +386,8 @@ export default function App() {
                 status_funil: 'CARRINHO_ABERTO' as const,
                 ultimo_gatilho: new Date().toISOString(),
                 bot_pausado: m.bot_pausado ?? 0,
+                cadastrado: m.cadastrado ?? 0,
+                email: m.email,
                 channel: m.channel,
               }];
             }
@@ -334,18 +407,28 @@ export default function App() {
               texto: m.texto,
               data_envio: m.data_envio || new Date().toISOString(),
               channel: m.channel,
+              delivery_status: m.direcao === 'out' ? 'sent' as const : undefined,
             }));
           return fresh.length ? [...prev, ...fresh] : prev;
         });
 
+        const previousSince = gatewayLastIdRef.current;
         gatewayLastIdRef.current = data.lastId;
         localStorage.setItem('gw_inbox_since', String(data.lastId));
 
         // A PLATAFORMA processa o fluxo: responde só às mensagens recebidas ('in')
-        // de leads com o bot ativo. Não processa o histórico na 1ª carga.
-        if (!firstSyncRef.current) {
+        // de leads com o bot ativo. Na 1ª carga, responde apenas mensagens recentes
+        // ou mensagens posteriores ao último marcador salvo, evitando disparos antigos.
+        const shouldProcess = (m: any) => {
+          if (m.direcao !== 'in' || m.bot_pausado) return false;
+          if (m.bot_processed) return false;
+          if (!firstSyncRef.current || previousSince > 0) return true;
+          const sentAt = new Date(m.data_envio || 0).getTime();
+          return Number.isFinite(sentAt) && Date.now() - sentAt <= 3 * 60 * 1000;
+        };
+        if (!firstSyncRef.current || data.messages.some(shouldProcess)) {
           for (const m of data.messages) {
-            if (m.direcao === 'in' && !m.bot_pausado) {
+            if (shouldProcess(m) && await claimBotMessage(m)) {
               await runBotFor(m);
             }
           }
@@ -357,7 +440,7 @@ export default function App() {
     };
 
     sync();
-    const timer = setInterval(sync, 4000);
+    const timer = setInterval(sync, 1500);
     return () => { alive = false; clearInterval(timer); };
   }, [whatsAppConfig.mode, whatsAppConfig.apiKey]);
 
@@ -500,13 +583,19 @@ export default function App() {
   // Omnichannel message dispatcher (Human operator manual sending)
   const handleSendManualMessage = (leadId: string, text: string) => {
     const lead = leads.find(l => l.id === leadId);
+    if (!lead) return;
+    const operatorName = lojistaUser?.name || lojistaUser?.email?.split('@')[0] || 'Atendente';
+    const formattedText = `*${operatorName}*\n${text}`;
+    const pendingId = 'usr_msg_' + Math.random().toString();
     const newMsg: SQLMessageLog = {
-      id: 'usr_msg_' + Math.random().toString(),
+      id: pendingId,
       lead_id: leadId,
       direcao: 'out',
-      texto: text,
+      texto: formattedText,
       data_envio: new Date().toISOString(),
-      operator_name: lojistaUser ? lojistaUser.email || lojistaUser.name : 'Suporte Humano'
+      operator_name: operatorName,
+      channel: lead.channel,
+      delivery_status: 'sending',
     };
     
     // 1. Add log message
@@ -515,8 +604,6 @@ export default function App() {
     // 2. Pause the automated bot since operator intervened! (As requested)
     setLeads(prev => prev.map(l => l.id === leadId ? { ...l, bot_pausado: 1, ultimo_gatilho: new Date().toISOString() } : l));
 
-    if (!lead) return;
-
     // 3. Despacho:
     //    - Leads do gateway (omnichannel): rota do ATENDENTE = GRATUITA (não consome token)
     //    - Leads locais (simulador): comportamento antigo
@@ -524,10 +611,27 @@ export default function App() {
       fetch(`${getGatewayBaseURL()}/api/bot/operator-send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${whatsAppConfig.apiKey}` },
-        body: JSON.stringify({ phone: lead.telefone, message: text, channel: lead.channel || 'whatsapp' })
-      }).catch(() => {});
+        body: JSON.stringify({ phone: lead.telefone, message: text, channel: lead.channel || 'whatsapp', operatorName })
+      })
+        .then(async (res) => {
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data?.error || `erro ${res.status}`);
+          setMessages(prev => prev.map(msg => msg.id === pendingId ? {
+            ...msg,
+            id: data?.message?.id ? `gw_msg_${data.message.id}` : msg.id,
+            texto: data?.message?.texto || msg.texto,
+            data_envio: data?.message?.data_envio || msg.data_envio,
+            delivery_status: 'sent',
+          } : msg));
+        })
+        .catch((err) => {
+          console.error('[Gateway] Falha ao enviar mensagem do operador', err);
+          setMessages(prev => prev.map(msg => msg.id === pendingId ? { ...msg, delivery_status: 'failed' } : msg));
+        });
     } else {
-      dispatchWhatsAppMessage(lead.telefone, text);
+      dispatchWhatsAppMessage(lead.telefone, formattedText)
+        .then(() => setMessages(prev => prev.map(msg => msg.id === pendingId ? { ...msg, delivery_status: 'sent' } : msg)))
+        .catch(() => setMessages(prev => prev.map(msg => msg.id === pendingId ? { ...msg, delivery_status: 'failed' } : msg)));
     }
   };
 
@@ -536,7 +640,7 @@ export default function App() {
     // (mesma do navegador), com override opcional via apiURL.
     if (isGatewayMode(whatsAppConfig.mode) && whatsAppConfig.apiKey) {
       try {
-        await fetch(whatsAppConfig.apiURL || getSendMessageURL(), {
+        const res = await fetch(whatsAppConfig.apiURL || getSendMessageURL(), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -547,7 +651,13 @@ export default function App() {
             message: textContent
           })
         });
-      } catch (err) {}
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.error || `erro ${res.status}`);
+        }
+      } catch (err) {
+        throw err;
+      }
     }
   };
 
@@ -672,6 +782,7 @@ export default function App() {
     { key: 'simulator', label: 'Simulador', icon: Smartphone },
     { key: 'crm', label: 'Funil de Vendas', icon: TrendingUp },
     { key: 'chat', label: 'Chat Omnichannel', icon: MessageSquare },
+    { key: 'flow', label: 'Fluxo do Bot', icon: Settings },
     { key: 'catalog', label: 'Catálogo', icon: ShoppingBag },
     { key: 'settings', label: 'Conexões & Conta', icon: Wifi },
     { key: 'customer_profiles', label: 'Perfis de Clientes', icon: User },
@@ -731,10 +842,68 @@ export default function App() {
                 <button onClick={toggleTheme} title="Alternar tema" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
                   {dark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
                 </button>
-                <div className="relative"><Bell className="w-5 h-5 text-slate-400 cursor-pointer hover:text-slate-600 dark:hover:text-slate-200" /><span className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full" /></div>
-                <div className="flex items-center gap-2 pl-3 border-l border-slate-200 dark:border-white/10">
+                <div className="relative">
+                  <button
+                    onClick={() => { setShowNotifications(prev => !prev); setShowProfileMenu(false); }}
+                    title="Ver notificações"
+                    className="relative text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  >
+                    <Bell className="w-5 h-5" />
+                    {messages.some(m => m.direcao === 'in') && <span className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full" />}
+                  </button>
+                  {showNotifications && (
+                    <div className="absolute right-0 mt-3 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden z-50">
+                      <div className="px-4 py-3 border-b border-slate-100 dark:border-white/10">
+                        <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-white">Notificações</span>
+                        <p className="text-[10px] text-slate-500 mt-0.5">{messages.filter(m => m.direcao === 'in').length} mensagens recebidas no histórico</p>
+                      </div>
+                      <div className="max-h-72 overflow-y-auto">
+                        {messages.filter(m => m.direcao === 'in').slice(-5).reverse().map(msg => {
+                          const lead = leads.find(l => l.id === msg.lead_id);
+                          return (
+                            <button
+                              key={msg.id}
+                              onClick={() => { setActiveTab('chat'); setShowNotifications(false); }}
+                              className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-white/5 border-b border-slate-100 dark:border-white/5"
+                            >
+                              <span className="block text-xs font-bold text-slate-800 dark:text-white truncate">{lead?.nome || 'Novo contato'}</span>
+                              <span className="block text-[11px] text-slate-500 truncate mt-0.5">{msg.texto}</span>
+                            </button>
+                          );
+                        })}
+                        {!messages.some(m => m.direcao === 'in') && (
+                          <div className="px-4 py-6 text-center text-xs text-slate-500">Nenhuma mensagem recebida ainda.</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="relative pl-3 border-l border-slate-200 dark:border-white/10">
+                  <button
+                    onClick={() => { setShowProfileMenu(prev => !prev); setShowNotifications(false); }}
+                    className="flex items-center gap-2"
+                    title="Abrir perfil"
+                  >
                   <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold">{(lojistaUser?.name || 'U').slice(0, 2).toUpperCase()}</div>
                   <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 hidden sm:block">{lojistaUser?.name}</span>
+                  </button>
+                  {showProfileMenu && (
+                    <div className="absolute right-0 mt-3 w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden z-50">
+                      <div className="px-4 py-4 border-b border-slate-100 dark:border-white/10">
+                        <span className="block text-sm font-bold text-slate-800 dark:text-white">{lojistaUser?.name}</span>
+                        <span className="block text-xs text-slate-500 truncate">{lojistaUser?.email}</span>
+                      </div>
+                      <button onClick={() => { setActiveTab('settings'); setShowProfileMenu(false); }} className="w-full text-left px-4 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5">
+                        Conexões e conta
+                      </button>
+                      <button onClick={() => { setActiveTab('customer_profiles'); setShowProfileMenu(false); }} className="w-full text-left px-4 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5">
+                        Perfis de clientes
+                      </button>
+                      <button onClick={handleLogout} className="w-full text-left px-4 py-3 text-xs font-bold text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10">
+                        Sair
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </header>
@@ -910,6 +1079,10 @@ export default function App() {
                 onToggleBot={handleToggleBot}
                 onSimulateWebhook={() => {}}
               />
+            )}
+
+            {activeTab === 'flow' && (
+              <BotFlowBuilder />
             )}
 
             {activeTab === 'catalog' && (

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, Search, Edit2, Trash2, Check, X, Tag, Smartphone, Archive, ShoppingBag, DollarSign, Share2 } from 'lucide-react';
 import { SQLProduct } from '../types';
+import { buildWhatsAppProductLink } from '../lib/productShare';
 
 interface CatalogProps {
   products: SQLProduct[];
@@ -23,16 +24,8 @@ export default function AdminCatalog({ products, onAddProduct, onEditProduct, on
   const [filterText, setFilterText] = useState('');
   const [sharedId, setSharedId] = useState<string | null>(null);
 
-  // Gera o link wa.me com a frase de interesse + palavra-passe (#YMS:CODIGO)
-  // que o bot usa para identificar o produto automaticamente.
-  const buildShareLink = (p: SQLProduct) => {
-    const frase = `Olá! Tenho interesse no produto *${p.nome}* (cód ${p.codigo}). #YMS:${p.codigo}`;
-    const num = (gatewayPhone || '').replace(/\D/g, '');
-    return `https://wa.me/${num}?text=${encodeURIComponent(frase)}`;
-  };
-
   const shareProduct = (p: SQLProduct) => {
-    const link = buildShareLink(p);
+    const link = buildWhatsAppProductLink(p, gatewayPhone);
     navigator.clipboard?.writeText(link).catch(() => {});
     setSharedId(p.id);
     setTimeout(() => setSharedId(null), 2000);

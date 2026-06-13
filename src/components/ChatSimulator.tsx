@@ -3,6 +3,7 @@ import { Send, Smartphone, Database, Check, RefreshCw, ShoppingCart, Trash2, Clo
 import { SQLProduct, SQLLead, SQLCart, SQLOrder, SQLMessageLog, WhatsAppConfig, FlowBlock, FlowOption } from '../types';
 import { DEFAULT_FLOW } from '../data/flows';
 import { getSendMessageURL, isGatewayMode } from '../lib/gateway';
+import { processBotMessage, BotState } from '../lib/botProcessor';
 
 interface ChatSimulatorProps {
   products: SQLProduct[];
@@ -132,6 +133,11 @@ export default function ChatSimulator({
     return saved ? saved === 'true' : true;
   });
 
+  const [leadBotStates, setLeadBotStates] = useState<{ [leadId: string]: BotState }>(() => {
+    const saved = localStorage.getItem('sql_simulator_bot_states');
+    return saved ? JSON.parse(saved) : {};
+  });
+
   useEffect(() => {
     localStorage.setItem('sql_lead_blocks', JSON.stringify(leadCurrentBlocks));
   }, [leadCurrentBlocks]);
@@ -151,6 +157,10 @@ export default function ChatSimulator({
   useEffect(() => {
     localStorage.setItem('sql_allow_global_triggers', String(allowGlobalTriggers));
   }, [allowGlobalTriggers]);
+
+  useEffect(() => {
+    localStorage.setItem('sql_simulator_bot_states', JSON.stringify(leadBotStates));
+  }, [leadBotStates]);
 
   const [inputText, setInputText] = useState('');
   const [simLogs, setSimLogs] = useState<{ id: string; node: string; level: 'info' | 'success' | 'warning' | 'error'; message: string; timestamp: string }[]>([]);
@@ -197,7 +207,8 @@ export default function ChatSimulator({
         nome: nameInput,
         status_funil: 'CARRINHO_ABERTO',
         ultimo_gatilho: new Date().toISOString(),
-        bot_pausado: 0
+        bot_pausado: 0,
+        cadastrado: 0
       });
       log('STATE_MANAGER', 'success', `Sucesso! Cadastrada nova sessão SQLite para o telefone ${purePhone}`);
     } else {
@@ -280,7 +291,8 @@ export default function ChatSimulator({
         nome: activeName,
         status_funil: 'CARRINHO_ABERTO',
         ultimo_gatilho: new Date().toISOString(),
-        bot_pausado: 0
+        bot_pausado: 0,
+        cadastrado: 0
       };
       onAddLead(lead);
     }
@@ -295,6 +307,57 @@ export default function ChatSimulator({
     // Check if bot is paused (human support took over!)
     if (lead.bot_pausado === 1) {
       log('CORE_LOGIC', 'warning', `Aviso: Robô AUTOMÁTICO pausado pelo lojista para suporte humano. Nenhuma resposta disparada.`);
+      return;
+    }
+
+    const previousBotState = leadBotStates[currentLeadId];
+    const previousStep = previousBotState?.step;
+    const guidedFlowActive = !!previousStep && !['start', 'menu', 'handoff'].includes(previousStep);
+    const legacyCommerceCommand = /^(comprar\s+|carrinho|sacola|itens|finalizar|fechar|faturamento|pagar|checkout|concluir|pago|comprovante|efetuei o pagamento|limpar)$/i.test(msgToSend.trim());
+
+    if (guidedFlowActive || !legacyCommerceCommand) {
+      await new Promise(resolve => setTimeout(resolve, 300));
+      let configuredFlow: FlowBlock[] = [];
+      try {
+        configuredFlow = JSON.parse(localStorage.getItem('sql_bot_flow') || '[]');
+      } catch {
+        configuredFlow = [];
+      }
+
+      const result = processBotMessage(msgToSend, previousBotState, {
+        products: products.map(p => ({
+          codigo: p.codigo,
+          nome: p.nome,
+          preco: p.preco,
+          estoque: p.estoque,
+          descricao: p.descricao,
+          foto_path: p.foto_path,
+        })),
+        registered: !!previousBotState?.registered || !!lead.cadastrado,
+        leadName: lead.nome,
+        flowBlocks: configuredFlow,
+      });
+
+      setLeadBotStates(prev => ({ ...prev, [currentLeadId]: result.nextState }));
+
+      const registerEffect = result.effects?.find(effect => effect.type === 'register_lead');
+      if (registerEffect) {
+        setActiveName(registerEffect.data.nome || activeName);
+        log('STATE_MANAGER', 'success', `Cadastro confirmado para ${registerEffect.data.nome} (${registerEffect.data.email})`);
+      }
+
+      for (const reply of result.replies) {
+        const text = reply.type === 'image' ? `[foto] ${reply.caption}` : reply.text;
+        onAddMessage(currentLeadId, 'out', text);
+        dispatchWhatsAppMessage(lead.telefone, text);
+        log(reply.type === 'image' ? 'PRODUCT_CARD' : 'ACTION_SENDER', 'success', 'Mensagem automatizada enviada pelo fluxo guiado.');
+      }
+
+      if (result.action === 'pause_bot') {
+        onSetBotPaused(currentLeadId, 1);
+        log('STATE_MANAGER', 'warning', 'Robô pausado: atendimento humano solicitado pelo fluxo.');
+      }
+
       return;
     }
 
@@ -838,6 +901,10 @@ export default function ChatSimulator({
 
               {currentLeadMessages.map(msg => {
                 const isBot = msg.direcao === 'out';
+                const imageProduct = isBot && msg.texto.startsWith('[foto]')
+                  ? products.find(p => msg.texto.includes(p.codigo) || msg.texto.includes(p.nome))
+                  : null;
+                const displayText = msg.texto.replace(/^\[foto\]\s*/, '');
                 return (
                   <div key={msg.id} className={`flex flex-col max-w-[80%] ${isBot ? 'mr-auto items-start' : 'ml-auto items-end'}`}>
                     <div className={`p-2 px-3 rounded-2xl text-[10px] leading-relaxed font-sans ${
@@ -850,7 +917,15 @@ export default function ChatSimulator({
                           👤 <strong>{msg.operator_name.split('@')[0].split(' ')[0]}</strong>
                         </div>
                       )}
-                      <p className="whitespace-pre-wrap select-all selection:bg-indigo-900">{msg.texto}</p>
+                      {imageProduct && (
+                        <img
+                          src={imageProduct.foto_path}
+                          alt={imageProduct.nome}
+                          referrerPolicy="no-referrer"
+                          className="mb-2 h-28 w-full rounded-xl object-cover border border-white/10 bg-slate-950"
+                        />
+                      )}
+                      <p className="whitespace-pre-wrap select-all selection:bg-indigo-900">{displayText}</p>
 
                       {/* Render interactive Buy Card buttons if code match details */}
                       {isBot && msg.texto.includes('Descrição:') && products.map(p => {

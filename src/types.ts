@@ -47,6 +47,8 @@ export interface SQLLead {
   status_funil: 'CARRINHO_ABERTO' | 'AGUARDANDO_PIX' | 'PAGO' | 'CONCLUIDO';
   ultimo_gatilho: string;
   bot_pausado: number; // 0 = false, 1 = true
+  cadastrado?: number; // 0 = cadastro pendente, 1 = cliente confirmado
+  email?: string;
   channel?: MessageChannel; // origem (preenchido quando o lead vem do gateway)
 }
 
@@ -77,6 +79,7 @@ export interface SQLMessageLog {
   data_envio: string;
   operator_name?: string; // Present if sent by a human operator
   channel?: MessageChannel; // origem da mensagem (gateway omnichannel)
+  delivery_status?: 'sending' | 'sent' | 'failed';
 }
 
 export interface WhatsAppConfig {
@@ -129,4 +132,3 @@ export interface FlowBlock {
   isStarting?: boolean;
   isGlobalTrigger?: boolean;
 }
-

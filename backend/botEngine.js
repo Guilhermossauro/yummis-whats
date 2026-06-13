@@ -13,7 +13,31 @@ const { db } = require('./db');
 const nowISO = () => new Date().toISOString();
 
 function normalizeAddress(address, channel = 'whatsapp') {
-  return channel === 'whatsapp' ? String(address).replace(/\D/g, '') : String(address).trim();
+  const raw = String(address || '').trim();
+  if (channel !== 'whatsapp') return raw;
+  if (raw.includes('@')) return raw;
+  return raw.replace(/\D/g, '');
+}
+
+function whatsappAddressCandidates(address, channel = 'whatsapp') {
+  const primary = normalizeAddress(address, channel);
+  if (channel !== 'whatsapp') return primary ? [primary] : [];
+
+  const raw = String(address || '').trim();
+  const candidates = [];
+  const push = (value) => {
+    if (value && !candidates.includes(value)) candidates.push(value);
+  };
+
+  push(primary);
+  if (raw.includes('@')) {
+    const bare = raw.split('@')[0].split(':')[0].replace(/\D/g, '');
+    push(bare);
+  } else {
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length >= 14) push(`${digits}@lid`);
+  }
+  return candidates;
 }
 
 // ------------------------------------------------------------------
@@ -21,7 +45,11 @@ function normalizeAddress(address, channel = 'whatsapp') {
 // ------------------------------------------------------------------
 const leadRepo = {
   byAddress(address, channel = 'whatsapp') {
-    return db.prepare('SELECT * FROM leads WHERE telefone = ? AND channel = ?').get(address, channel);
+    for (const candidate of whatsappAddressCandidates(address, channel)) {
+      const found = db.prepare('SELECT * FROM leads WHERE telefone = ? AND channel = ?').get(candidate, channel);
+      if (found) return found;
+    }
+    return null;
   },
   byAddressAnyChannel(address) {
     return db.prepare('SELECT * FROM leads WHERE telefone = ?').get(address);
@@ -44,8 +72,9 @@ const leadRepo = {
 };
 
 function persistMessage(leadId, direcao, texto, channel = 'whatsapp') {
-  db.prepare('INSERT INTO messages_log (lead_id, direcao, texto, channel) VALUES (?, ?, ?, ?)')
+  const info = db.prepare('INSERT INTO messages_log (lead_id, direcao, texto, channel) VALUES (?, ?, ?, ?)')
     .run(leadId, direcao, texto, channel);
+  return db.prepare('SELECT * FROM messages_log WHERE id = ?').get(info.lastInsertRowid);
 }
 
 function findLead(address, channel) {
@@ -83,9 +112,9 @@ function recordOutgoing(address, channel, text, ownerId, prefix = '') {
   const addr = normalizeAddress(address, channel);
   let lead = leadRepo.byAddress(addr, channel);
   if (!lead) lead = leadRepo.create(addr, ownerId, channel);
-  persistMessage(lead.id, 'out', prefix + text, channel);
+  const message = persistMessage(lead.id, 'out', prefix + text, channel);
   leadRepo.update(lead.id, { last_activity: nowISO() });
-  return lead;
+  return { lead, message };
 }
 
 // ------------------------------------------------------------------
@@ -95,6 +124,18 @@ function handoff(address, channel) {
   const lead = findLead(address, channel);
   if (lead) leadRepo.update(lead.id, { bot_pausado: 1 });
   return lead;
+}
+
+function registerLead(address, channel, data = {}) {
+  const lead = findLead(address, channel);
+  if (!lead) return null;
+  leadRepo.update(lead.id, {
+    cadastrado: 1,
+    nome: data.name || data.nome || lead.nome,
+    email: data.email || lead.email || null,
+    last_activity: nowISO(),
+  });
+  return findLead(address, channel);
 }
 
 async function closeService(address, send, channel) {
@@ -110,19 +151,21 @@ async function closeService(address, send, channel) {
 }
 
 // Operador envia mensagem manual -> pausa o bot (assume atendimento). GRATUITO.
-async function operatorSend(address, text, send, channel = 'whatsapp') {
+async function operatorSend(address, text, send, channel = 'whatsapp', operatorName = 'Atendente') {
   const addr = normalizeAddress(address, channel);
   let lead = leadRepo.byAddress(addr, channel);
   if (!lead) lead = leadRepo.create(addr, null, channel);
   leadRepo.update(lead.id, { bot_pausado: 1, last_activity: nowISO() });
-  await send(text);
-  persistMessage(lead.id, 'out', `[operador] ${text}`, lead.channel);
-  return lead;
+  const operatorText = `*${operatorName}*\n${text}`;
+  const sendResult = await send(operatorText);
+  const message = persistMessage(lead.id, 'out', operatorText, lead.channel);
+  return { lead, message, operatorName, sendResult };
 }
 
 module.exports = {
   recordIncoming,
   recordOutgoing,
+  registerLead,
   handoff,
   closeService,
   operatorSend,

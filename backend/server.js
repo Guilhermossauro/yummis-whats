@@ -35,6 +35,19 @@ function mediaMarker(message) {
   return '';
 }
 
+function previewText(value, limit = 120) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '(sem texto)';
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+function deliverySummary({ message, image, caption }) {
+  if (image) {
+    return caption ? `foto com legenda "${previewText(caption)}"` : 'foto sem legenda';
+  }
+  return `texto "${previewText(message)}"`;
+}
+
 // Extrai o texto de uma mensagem do Baileys (vários formatos possíveis)
 function extractText(message) {
   if (!message) return '';
@@ -49,13 +62,33 @@ function extractText(message) {
   );
 }
 
+function displayWhatsAppAddress(address) {
+  return String(address || '').split('@')[0].split(':')[0];
+}
+
+function toWhatsAppJid(address) {
+  const raw = String(address || '').trim();
+  if (!raw) throw new Error('Destino WhatsApp vazio.');
+  if (raw.includes('@')) return raw;
+
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) throw new Error(`Destino WhatsApp inválido: ${raw}`);
+
+  // Alguns WhatsApps novos chegam via LID (ex: 184572008489207@lid).
+  // Se gravamos um LID legado sem o sufixo, responder em @s.whatsapp.net
+  // confirma no gateway mas não chega no cliente. Para IDs longos, use @lid.
+  if (digits.length >= 14) return `${digits}@lid`;
+  return `${digits}@s.whatsapp.net`;
+}
+
 // Cria uma função de envio (phone, text) ligada à conexão WhatsApp de um usuário.
 function makeSenderFor(userId) {
   const session = activeSessions.get(userId);
   if (!session || session.status !== 'CONNECTED' || !session.socket || session.isSimulated) return null;
   return async (phone, text) => {
-    const jid = String(phone).replace(/\D/g, '') + '@s.whatsapp.net';
-    await session.socket.sendMessage(jid, { text });
+    const jid = toWhatsAppJid(phone);
+    const result = await session.socket.sendMessage(jid, { text });
+    return { jid, result };
   };
 }
 
@@ -91,16 +124,16 @@ async function deliverMessage(userId, to, channel, { text, image, caption }) {
     if (!s || s.status !== 'CONNECTED' || !s.socket || s.isSimulated) {
       throw new Error('WhatsApp não conectado para este usuário.');
     }
-    const jid = String(to).replace(/\D/g, '') + '@s.whatsapp.net';
-    if (image) await s.socket.sendMessage(jid, { image: toImageContent(image), caption: caption || '' });
-    else await s.socket.sendMessage(jid, { text });
-    return;
+    const jid = toWhatsAppJid(to);
+    const result = image
+      ? await s.socket.sendMessage(jid, { image: toImageContent(image), caption: caption || '' })
+      : await s.socket.sendMessage(jid, { text });
+    return { jid, result };
   }
   if (channel === 'telegram') {
     if (telegram.status(userId).status !== 'CONNECTED') throw new Error('Telegram não conectado.');
-    if (image) await telegram.sendPhoto(userId, to, image, caption);
-    else await telegram.send(userId, to, text);
-    return;
+    const result = image ? await telegram.sendPhoto(userId, to, image, caption) : await telegram.send(userId, to, text);
+    return { jid: String(to), result };
   }
   throw new Error(`Canal ${channel} não suporta entrega push (use webhook).`);
 }
@@ -152,23 +185,31 @@ async function onWhatsAppMessages(userId, sock, msgUpdate) {
   message.isGroup = String(chatId).endsWith('@g.us');
 
   // Texto OU marcador de mídia (áudio/imagem/etc) — a plataforma trata mídia como erro.
-  const text = extractText(message.message) || mediaMarker(message.message);
-  const phone = String(sender).split('@')[0].split(':')[0];
+  const text = mediaMarker(message.message) || extractText(message.message);
+  const address = sender || chatId;
+  const phone = displayWhatsAppAddress(address);
 
   // LOG das mensagens recebidas pelo próprio WhatsApp (aparece no console do gateway)
   logToSession(
     userId,
-    `📩 [whatsapp] ${message.isGroup ? '(grupo) ' : ''}de ${phone}${message.pushName ? ' ('+message.pushName+')' : ''}: "${String(text).slice(0, 60)}"`,
+    `📩 [whatsapp] ${message.isGroup ? '(grupo) ' : ''}de ${phone}${message.pushName ? ' ('+message.pushName+')' : ''}: "${previewText(text, 80)}"${address && String(address).includes('@') ? ` [jid ${address}]` : ''}`,
     'info'
   );
 
-  if (message.isGroup) return; // bot só atende no privado
-  if (!text) return;
+  if (message.isGroup) {
+    logToSession(userId, `⏭️ [bot] conversa em grupo ignorada: ${phone}.`, 'warning');
+    return;
+  }
+  if (!text) {
+    logToSession(userId, `⏭️ [bot] mensagem sem conteúdo de ${phone} ignorada.`, 'warning');
+    return;
+  }
 
   // O GATEWAY NÃO processa o fluxo: apenas registra a mensagem para a plataforma
   // buscar via /api/inbox e processar o bot lá.
   try {
-    botEngine.recordIncoming({ ownerId: userId, channel: 'whatsapp', address: phone, name: message.pushName || undefined, text });
+    const lead = botEngine.recordIncoming({ ownerId: userId, channel: 'whatsapp', address, name: message.pushName || undefined, text });
+    logToSession(userId, `🧠 [bot] mensagem salva no CRM para ${phone}${lead?.id ? ` (lead #${lead.id})` : ''}; aguardando resposta da plataforma.`, 'success');
   } catch (e) {
     logToSession(userId, `Erro ao registrar mensagem: ${e.message}`, 'error');
   }
@@ -180,7 +221,7 @@ function logToSession(userId, message, type = 'info') {
   if (session) {
     const timestamp = new Date().toLocaleTimeString('pt-BR');
     session.logs.push(`[${timestamp}] [${type.toUpperCase()}] ${message}`);
-    if (session.logs.length > 50) session.logs.shift(); // Keep last 50 logs
+    if (session.logs.length > 200) session.logs.shift();
   }
   console.log(`[Session ${userId}] [${type.toUpperCase()}] ${message}`);
 }
@@ -743,20 +784,65 @@ app.post('/api/bot/handoff', (req, res) => {
   return res.json({ success: true, paused: true, lead });
 });
 
+// Confirma cadastro capturado pelo fluxo do bot na plataforma.
+app.post('/api/bot/register-lead', (req, res) => {
+  const { phone, channel, name, email } = req.body;
+  if (!phone) return res.status(400).json({ error: 'phone é obrigatório.' });
+  const lead = botEngine.registerLead(phone, channel, { name, email });
+  if (!lead) return res.status(404).json({ error: 'Conversa não encontrada.' });
+  return res.json({ success: true, lead });
+});
+
+// Trava anti-duplicidade: quando mais de uma aba do CRM está aberta, só a
+// primeira que reservar a mensagem pode processar e responder pelo bot.
+app.post('/api/bot/claim-message', (req, res) => {
+  const user = userFromAuth(req);
+  if (!user) return res.status(401).json({ error: 'Token Bearer inválido.' });
+  const messageId = Number(req.body?.messageId);
+  if (!messageId) return res.status(400).json({ error: 'messageId é obrigatório.' });
+
+  const info = db.prepare(
+    `UPDATE messages_log
+        SET bot_processed = 1
+      WHERE id = ?
+        AND direcao = 'in'
+        AND COALESCE(bot_processed, 0) = 0
+        AND lead_id IN (SELECT id FROM leads WHERE owner_id = ? OR owner_id IS NULL)`
+  ).run(messageId, user.id);
+
+  const claimed = info.changes === 1;
+  logToSession(
+    user.id,
+    claimed
+      ? `🧠 [bot] mensagem #${messageId} reservada para resposta automática.`
+      : `⏭️ [bot] mensagem #${messageId} já estava reservada/respondida por outra aba.`,
+    claimed ? 'info' : 'warning'
+  );
+  return res.json({ success: true, claimed });
+});
+
 // Operador envia mensagem manual -> pausa o bot. GRATUITO (não debita token).
 // Autentica pelo token do usuário (Bearer) usado pelo CRM, ou userId no corpo.
 app.post('/api/bot/operator-send', async (req, res) => {
   const u = userFromAuth(req);
   const userId = u ? u.id : req.body.userId;
-  const { phone, message, channel = 'whatsapp' } = req.body;
+  const { phone, message, channel = 'whatsapp', operatorName = 'Atendente' } = req.body;
   if (!userId) return res.status(401).json({ error: 'Identifique o usuário (Bearer token).' });
+  logToSession(userId, `👤 [operador] ${operatorName} enviando texto "${previewText(message)}" para ${phone} via ${channel}.`, 'info');
   // Envio direto (sem botSend) => atendente não consome créditos
   const send = makeSenderForLead({ owner_id: userId, telefone: String(phone).trim(), channel });
-  if (!send) return res.status(409).json({ error: `Canal ${channel} não conectado para este usuário.` });
+  if (!send) {
+    logToSession(userId, `❌ [operador] canal ${channel} não conectado para enviar a ${phone}.`, 'error');
+    return res.status(409).json({ error: `Canal ${channel} não conectado para este usuário.` });
+  }
   try {
-    await botEngine.operatorSend(phone, message, send, channel);
-    return res.json({ success: true });
+    const result = await botEngine.operatorSend(phone, message, send, channel, operatorName);
+    const jid = result.sendResult?.jid || String(phone);
+    const providerMessageId = result.sendResult?.result?.key?.id || result.sendResult?.result?.messageID || null;
+    logToSession(userId, `✅ [operador] enviado para ${phone} via ${channel} (destino ${jid}${providerMessageId ? `, id ${providerMessageId}` : ''}).`, 'success');
+    return res.json({ success: true, delivered: true, jid, providerMessageId, message: result.message, lead: result.lead, operatorName });
   } catch (err) {
+    logToSession(userId, `❌ [operador] falha ao enviar para ${phone} via ${channel}: ${err.message}`, 'error');
     return res.status(500).json({ error: err.message });
   }
 });
@@ -813,7 +899,9 @@ app.post('/api/channels/:userId', async (req, res) => {
         if (!token) return res.status(400).json({ error: 'Informe o token do bot (@BotFather).' });
         const botName = await telegram.start(userId, token, async ({ chatId, name, text }) => {
           // Só registra; a plataforma processa o fluxo e responde via /api/gateway/send.
-          botEngine.recordIncoming({ ownerId: userId, channel: 'telegram', address: chatId, name, text });
+          logToSession(userId, `📩 [telegram] de ${chatId}${name ? ` (${name})` : ''}: "${previewText(text, 80)}"`, 'info');
+          const lead = botEngine.recordIncoming({ ownerId: userId, channel: 'telegram', address: chatId, name, text });
+          logToSession(userId, `🧠 [bot] mensagem do Telegram salva no CRM${lead?.id ? ` (lead #${lead.id})` : ''}; aguardando resposta da plataforma.`, 'success');
         });
         channels.upsert(userId, 'telegram', 'CONNECTED', { botToken: token });
         return res.json({ success: true, status: 'CONNECTED', botName });
@@ -852,9 +940,12 @@ app.post('/api/webhook/:channel', (req, res) => {
   if (!from || !text) return res.status(400).json({ error: 'Campos "from" e "text" são obrigatórios.' });
 
   try {
-    botEngine.recordIncoming({ ownerId: user.id, channel, address: String(from), name, text });
+    logToSession(user.id, `📩 [${channel}] webhook recebido de ${from}${name ? ` (${name})` : ''}: "${previewText(text, 80)}"`, 'info');
+    const lead = botEngine.recordIncoming({ ownerId: user.id, channel, address: String(from), name, text });
+    logToSession(user.id, `🧠 [bot] mensagem de ${channel} salva no CRM${lead?.id ? ` (lead #${lead.id})` : ''}; aguardando resposta da plataforma.`, 'success');
     return res.json({ success: true, channel, recorded: true });
   } catch (err) {
+    logToSession(user.id, `❌ [${channel}] falha ao registrar webhook de ${from}: ${err.message}`, 'error');
     return res.status(500).json({ error: err.message });
   }
 });
@@ -867,24 +958,39 @@ app.post('/api/webhook/:channel', (req, res) => {
 app.post('/api/gateway/send', async (req, res) => {
   const user = userFromAuth(req);
   if (!user) return res.status(401).json({ error: 'Token Bearer inválido.' });
-  const { to, channel = 'whatsapp', message, image, caption, actor = 'bot' } = req.body || {};
+  const { to, channel = 'whatsapp', message, image, caption, actor = 'bot', operatorName = 'Atendente' } = req.body || {};
   if (!to || (!message && !image)) return res.status(400).json({ error: 'Informe "message" ou "image".' });
+  const actorLabel = actor === 'operator' ? 'operador' : 'bot';
+  const outboundMessage = actor === 'operator' && message ? `*${operatorName}*\n${message}` : message;
+  const outboundCaption = actor === 'operator' && image && caption ? `*${operatorName}*\n${caption}` : caption;
+  const summary = deliverySummary({ message: outboundMessage, image, caption: outboundCaption });
 
   // Expiração / créditos (apenas o bot consome)
   if (user.expirationDate && new Date(user.expirationDate).getTime() < Date.now()) {
+    logToSession(user.id, `❌ [${actorLabel}] envio bloqueado para ${to} via ${channel}: usuário expirado.`, 'error');
     return res.status(403).json({ error: 'Usuário expirado.' });
   }
   if (actor === 'bot' && user.tokensCount !== null && user.tokensCount <= 0) {
+    logToSession(user.id, `❌ [bot] envio bloqueado para ${to} via ${channel}: sem créditos.`, 'error');
     return res.status(403).json({ error: 'Sem créditos de mensagens (bot).' });
   }
 
   try {
-    await deliverMessage(user.id, to, channel, { text: message, image, caption });
-    const logText = image ? `[foto] ${caption || ''}`.trim() : message;
-    botEngine.recordOutgoing(to, channel, logText, user.id, actor === 'operator' ? '[operador] ' : '');
+    logToSession(user.id, `➡️ [${actorLabel}] enviando ${summary} para ${to} via ${channel}.`, 'info');
+    const delivery = await deliverMessage(user.id, to, channel, { text: outboundMessage, image, caption: outboundCaption });
+    const logText = image ? `[foto] ${outboundCaption || ''}`.trim() : outboundMessage;
+    const saved = botEngine.recordOutgoing(to, channel, logText, user.id, '');
     if (actor === 'bot') consumeBotToken(user.id);
-    return res.json({ success: true, remainingTokens: gateway.getUserById(user.id).tokensCount });
+    const remainingTokens = gateway.getUserById(user.id).tokensCount;
+    const providerMessageId = delivery?.result?.key?.id || delivery?.result?.messageID || null;
+    logToSession(
+      user.id,
+      `✅ [${actorLabel}] enviado para ${to} via ${channel} (destino ${delivery?.jid || to}${providerMessageId ? `, id ${providerMessageId}` : ''}).${actor === 'bot' ? ` Créditos restantes: ${remainingTokens ?? 'ilimitado'}.` : ''}`,
+      'success'
+    );
+    return res.json({ success: true, delivered: true, jid: delivery?.jid || String(to), providerMessageId, remainingTokens, message: saved.message, lead: saved.lead });
   } catch (err) {
+    logToSession(user.id, `❌ [${actorLabel}] falha ao enviar para ${to} via ${channel}: ${err.message}`, 'error');
     const code = /não conectado|desconectad/i.test(err.message) ? 409 : 500;
     return res.status(code).json({ error: err.message });
   }
@@ -901,8 +1007,8 @@ app.get('/api/inbox', (req, res) => {
   if (!user) return res.status(401).json({ error: 'Token Bearer inválido.' });
   const since = Number(req.query.since || 0);
   const rows = db.prepare(
-    `SELECT m.id, m.lead_id, m.direcao, m.texto, m.channel, m.data_envio,
-            l.telefone, l.nome, l.bot_pausado
+    `SELECT m.id, m.lead_id, m.direcao, m.texto, m.channel, m.data_envio, m.bot_processed,
+            l.telefone, l.nome, l.email, l.cadastrado, l.bot_pausado
        FROM messages_log m
        JOIN leads l ON l.id = m.lead_id
       WHERE m.id > ? AND (l.owner_id = ? OR l.owner_id IS NULL)
@@ -943,7 +1049,7 @@ app.get('/api/contacts/:userId', (req, res) => {
 // plataforma (frontend), que busca via /api/inbox.
 app.post('/api/dev/sim-wa', async (req, res) => {
   const { userId = 'user_1', from = '5511988887777', text = 'oi', name = 'Cliente Teste' } = req.body || {};
-  const jid = String(from).replace(/\D/g, '') + '@s.whatsapp.net';
+  const jid = String(from).includes('@') ? String(from).trim() : String(from).replace(/\D/g, '') + '@s.whatsapp.net';
   const mockSock = { sendMessage: async () => {} };
   const fakeUpdate = {
     type: 'notify',
