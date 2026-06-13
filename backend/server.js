@@ -767,9 +767,46 @@ app.post('/api/auth/login', (req, res) => {
   }
   const user = gateway.getUserByUsername(username);
   if (user && user.password === password) {
+    // Cadastro de loja precisa de aprovação do administrador antes de logar.
+    if (user.status === 'pending') {
+      return res.status(403).json({ success: false, error: 'Sua loja está aguardando aprovação do administrador.', pending: true });
+    }
+    if (user.status === 'blocked') {
+      return res.status(403).json({ success: false, error: 'Acesso bloqueado. Contate o administrador.' });
+    }
     return res.json({ success: true, role: 'user', user });
   }
   return res.status(401).json({ success: false, error: 'Usuário ou senha incorretos.' });
+});
+
+// Cadastro PÚBLICO de loja — fica PENDENTE até o administrador aprovar.
+app.post('/api/auth/signup', (req, res) => {
+  const { username, password, storeName } = req.body || {};
+  if (!username || !password) return res.status(400).json({ error: 'Usuário e senha são obrigatórios.' });
+  if (gateway.getUserByUsername(username)) return res.status(409).json({ error: 'Este nome de usuário já existe.' });
+  const generatedToken = 'token_' + Math.random().toString(36).substr(2, 9) + '_' + Math.random().toString(36).substr(2, 9);
+  gateway.createUser({
+    id: 'user_' + Date.now(),
+    username,
+    password,
+    token: generatedToken,
+    tokensCount: 1000,
+    expirationDate: null,
+    createdAt: new Date().toISOString(),
+    status: 'pending',
+    storeName: storeName || username,
+  });
+  return res.json({ success: true, pending: true, message: 'Cadastro recebido! Sua loja será liberada após aprovação do administrador.' });
+});
+
+// Admin aprova / bloqueia uma loja.
+app.post('/api/admin/users/:id/status', (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body || {};
+  if (!['active', 'pending', 'blocked'].includes(status)) return res.status(400).json({ error: 'Status inválido.' });
+  if (!gateway.getUserById(id)) return res.status(404).json({ error: 'Usuário não encontrado.' });
+  const user = gateway.setStatus(id, status);
+  return res.json({ success: true, user });
 });
 
 // ====================================================================

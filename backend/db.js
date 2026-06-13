@@ -43,6 +43,9 @@ ensureColumn('leads', 'last_activity', 'last_activity VARCHAR(40)');  // ISO da 
 ensureColumn('leads', 'channel', "channel VARCHAR(20) DEFAULT 'whatsapp'");        // canal de origem do lead
 ensureColumn('messages_log', 'channel', "channel VARCHAR(20) DEFAULT 'whatsapp'"); // canal de origem da mensagem
 ensureColumn('messages_log', 'bot_processed', 'bot_processed INTEGER DEFAULT 0');  // trava anti-resposta duplicada entre abas
+// Cadastro de loja com aprovação do administrador (status active = liberado)
+ensureColumn('gateway_users', 'status', "status VARCHAR(20) DEFAULT 'active'");    // active | pending | blocked
+ensureColumn('gateway_users', 'store_name', 'store_name VARCHAR(150)');            // nome da loja
 
 // Conexões de canais de mensagem por usuário (WhatsApp, Telegram, Facebook, Instagram, X)
 db.exec(`
@@ -147,6 +150,8 @@ function mapUser(row) {
     tokensCount: row.tokens_count,
     expirationDate: row.expiration_date,
     createdAt: row.created_at,
+    status: row.status || 'active',
+    storeName: row.store_name || null,
   };
 }
 
@@ -171,10 +176,14 @@ const gateway = {
   createUser(u) {
     db.prepare(
       `INSERT INTO gateway_users
-         (id, username, password, token, tokens_count, expiration_date, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(u.id, u.username, u.password, u.token, u.tokensCount, u.expirationDate, u.createdAt);
+         (id, username, password, token, tokens_count, expiration_date, created_at, status, store_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(u.id, u.username, u.password, u.token, u.tokensCount, u.expirationDate, u.createdAt, u.status || 'active', u.storeName || null);
     return this.getUserById(u.id);
+  },
+  setStatus(id, status) {
+    db.prepare('UPDATE gateway_users SET status = ? WHERE id = ?').run(status, id);
+    return this.getUserById(id);
   },
   updateUser(id, fields) {
     const current = this.getUserById(id);

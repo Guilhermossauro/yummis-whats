@@ -401,8 +401,16 @@
           <button type="submit" class="btn block">Entrar <i data-lucide="arrow-right"></i></button>
         </form>
         <p style="text-align:center; font-size:0.72rem; color:var(--muted); margin-top:1rem;">
-          Entrada única — o sistema identifica se você é administrador ou cliente.
+          Entrada única — admin ou cliente. <a href="#" onclick="toggleSignup(event)" style="color:var(--green); font-weight:700;">Criar loja</a>
         </p>
+
+        <form id="signup-form" class="hidden" onsubmit="handleSignup(event)" style="margin-top:0.5rem; border-top:1px solid var(--border); padding-top:1rem;">
+          <p class="sub" style="margin-bottom:0.8rem;">Cadastre sua loja. O acesso é liberado após aprovação do administrador.</p>
+          <div class="form-group"><label>Nome da loja</label><input type="text" id="signup-store" class="form-control" placeholder="Ex: Moda Bella" required></div>
+          <div class="form-group"><label>Usuário</label><input type="text" id="signup-username" class="form-control" placeholder="usuário de acesso" required></div>
+          <div class="form-group"><label>Senha</label><input type="password" id="signup-password" class="form-control" placeholder="senha" required></div>
+          <button type="submit" class="btn block">Criar loja <i data-lucide="store" style="width:15px"></i></button>
+        </form>
       </div>
     </div>
   </div>
@@ -931,11 +939,40 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username: u, password: p })
         });
-        if (!res.ok) return notify('Usuário ou senha incorretos.', 'error');
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return notify(data.error || 'Usuário ou senha incorretos.', 'error');
         currentRole = data.role;
         currentUser = data.user || null;
         enterApp(u);
+      } catch (err) {
+        notify('Erro de conexão com o servidor.', 'error');
+      }
+    }
+
+    // ---------------- CADASTRO de loja (pendente de aprovação) ----------------
+    function toggleSignup(e) {
+      if (e) e.preventDefault();
+      document.getElementById('signup-form').classList.toggle('hidden');
+    }
+    async function handleSignup(e) {
+      e.preventDefault();
+      const storeName = document.getElementById('signup-store').value;
+      const username = document.getElementById('signup-username').value;
+      const password = document.getElementById('signup-password').value;
+      try {
+        const res = await fetch('/api/auth/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, storeName })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          notify(data.message || 'Loja cadastrada! Aguarde a aprovação do administrador.');
+          document.getElementById('signup-form').reset();
+          document.getElementById('signup-form').classList.add('hidden');
+        } else {
+          notify(data.error || 'Não foi possível cadastrar.', 'error');
+        }
       } catch (err) {
         notify('Erro de conexão com o servidor.', 'error');
       }
@@ -1315,15 +1352,24 @@
         const res = await fetch('/api/admin/users');
         const users = await res.json();
         const tbody = document.getElementById('users-table-body');
-        tbody.innerHTML = users.map(u => `
+        tbody.innerHTML = users.map(u => {
+          const status = u.status || 'active';
+          const pill = status === 'pending'
+            ? '<span class="pill warn">Pendente</span>'
+            : status === 'blocked' ? '<span class="pill off">Bloqueado</span>' : '<span class="pill ok">Ativa</span>';
+          const approveBtn = status !== 'active'
+            ? `<button class="btn-action" style="color:var(--green)" onclick="setUserStatus('${u.id}','active')" title="Aprovar loja"><i data-lucide="check" style="width:13px;height:13px;"></i></button>`
+            : `<button class="btn-action" onclick="setUserStatus('${u.id}','blocked')" title="Bloquear"><i data-lucide="ban" style="width:13px;height:13px;"></i></button>`;
+          return `
           <tr>
-            <td><b>${u.username}</b></td>
+            <td><b>${u.storeName || u.username}</b><div class="sub" style="font-size:0.66rem;">@${u.username} ${pill}</div></td>
             <td><span class="token-cell" title="${u.token}">${u.token}</span></td>
             <td class="font-mono">${u.tokensCount === null ? '∞' : u.tokensCount}</td>
             <td>${u.expirationDate ? new Date(u.expirationDate).toLocaleDateString('pt-BR') : '—'}</td>
             <td>${u.createdAt ? new Date(u.createdAt).toLocaleDateString('pt-BR') : '—'}</td>
             <td>
               <div style="display:flex; gap:0.4rem;">
+                ${approveBtn}
                 <button class="btn-action" onclick="openEditModal('${u.id}', '${u.username}', ${u.tokensCount}, '${u.expirationDate || ''}')" title="Editar">
                   <i data-lucide="pencil" style="width:13px;height:13px;"></i>
                 </button>
@@ -1332,9 +1378,20 @@
                 </button>
               </div>
             </td>
-          </tr>`).join('');
+          </tr>`; }).join('');
         lucide.createIcons();
       } catch (e) {}
+    }
+
+    async function setUserStatus(id, status) {
+      try {
+        const res = await fetch(`/api/admin/users/${id}/status`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status })
+        });
+        if (res.ok) { notify(status === 'active' ? 'Loja aprovada!' : 'Loja bloqueada.'); fetchAdminUsers(); }
+        else notify('Erro ao atualizar status.', 'error');
+      } catch (e) { notify('Erro de conexão.', 'error'); }
     }
 
     function openCreateModal() {
