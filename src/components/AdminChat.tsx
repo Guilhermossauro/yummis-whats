@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MessageSquare, Send, Bot, User, CornerDownLeft, RefreshCw, ShoppingCart, Power, ExternalLink, Play } from 'lucide-react';
 import { SQLLead, SQLMessageLog, SQLCart, SQLProduct, WhatsAppConfig } from '../types';
-import { getSendMessageURL, isGatewayMode, channelMeta } from '../lib/gateway';
+import { channelMeta } from '../lib/gateway';
 
 interface ChatProps {
   leads: SQLLead[];
@@ -42,6 +42,16 @@ export default function AdminChat({
 
   const selectedLead = leads.find(l => l.id === selectedLeadId);
   const selectedCarts = carts.filter(c => c.lead_id === selectedLeadId);
+
+  // Timestamp da última atividade de um lead (última mensagem ou ultimo_gatilho)
+  const leadLastTs = (lead: SQLLead) => {
+    const last = messages
+      .filter(m => m.lead_id === lead.id)
+      .reduce((mx, m) => Math.max(mx, new Date(m.data_envio).getTime()), 0);
+    return last || new Date(lead.ultimo_gatilho).getTime() || 0;
+  };
+  // Contatos recentes: mais recente em cima, mais antigo embaixo.
+  const orderedLeads = [...leads].sort((a, b) => leadLastTs(b) - leadLastTs(a));
   const selectedMessages = messages
     .filter(m => m.lead_id === selectedLeadId)
     .sort((a, b) => new Date(a.data_envio).getTime() - new Date(b.data_envio).getTime());
@@ -100,7 +110,7 @@ export default function AdminChat({
               Nenhuma conversa ativa no momento... Use o Simulador ao lado para abrir contatos!
             </div>
           ) : (
-            leads.map(lead => {
+            orderedLeads.map(lead => {
               const active = lead.id === selectedLeadId;
               const lastMsg = messages
                 .filter(m => m.lead_id === lead.id)
@@ -299,21 +309,6 @@ export default function AdminChat({
                 <span className="font-bold text-white font-mono">R$ {calculateCartTotal().toFixed(2).replace('.', ',')}</span>
               </div>
 
-              {/* Status card showing Yummis API (gateway) trigger feedback */}
-              <div className="p-3 rounded-xl border border-white/5 bg-slate-950/60 text-[9px] text-slate-500 leading-relaxed font-sans">
-                <span className="text-white font-bold uppercase text-[8px] block mb-1">Status de Envio ({whatsAppConfig.mode})</span>
-                {isGatewayMode(whatsAppConfig.mode) ? (
-                  <>
-                    <span className="text-emerald-400 block font-semibold">• Yummis API Ativada (Gateway)</span>
-                    <span className="block mt-0.5 uppercase tracking-wide">Gateway: {whatsAppConfig.apiURL || getSendMessageURL()}</span>
-                    <span className="block mt-0.5 uppercase tracking-wide">Token: {whatsAppConfig.apiKey ? whatsAppConfig.apiKey.slice(0, 10) + '...' : 'Faltando'}</span>
-                  </>
-                ) : whatsAppConfig.mode === 'baileys' ? (
-                  <span className="text-blue-400 block">• Integração Local Simulada</span>
-                ) : (
-                  <span className="text-indigo-400 block">• Modo Sandbox Ativo</span>
-                )}
-              </div>
             </div>
           </>
         ) : (

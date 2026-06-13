@@ -47,7 +47,10 @@ export interface BotResult {
   replies: BotReply[];
   nextState: BotState;
   action?: 'pause_bot';
-  effects?: Array<{ type: 'register_lead'; data: { nome: string; email: string } }>;
+  effects?: Array<
+    | { type: 'register_lead'; data: { nome: string; email: string } }
+    | { type: 'decrement_stock'; data: { codigo: string; quantidade: number } }
+  >;
 }
 
 export const PASSPHRASE_PREFIX = '#YMS:'; // marca o produto no link compartilhável
@@ -284,10 +287,18 @@ export function processBotMessage(input: string, prev: BotState | undefined, ctx
     case 'confirm_product': {
       const prod = findByCode(state.pendingProduct, products);
       if (isYes(input)) {
+        // Confirmação de compra: baixa 1 unidade do estoque do produto.
+        const effects = prod && prod.estoque > 0
+          ? [{ type: 'decrement_stock' as const, data: { codigo: prod.codigo, quantidade: 1 } }]
+          : undefined;
+        const aviso = prod && prod.estoque <= 0
+          ? `\n\n⚠️ Atenção: *${prod.nome}* está sem estoque no momento — o atendente confirmará a disponibilidade.`
+          : '';
         return {
-          replies: [t(`🎉 Interesse em *${prod?.nome || 'seu produto'}* registrado! Um *atendente* vai falar com você para finalizar. Obrigado! 🙌`)],
+          replies: [t(`🎉 Interesse em *${prod?.nome || 'seu produto'}* registrado! Um *atendente* vai falar com você para finalizar. Obrigado! 🙌${aviso}`)],
           nextState: { ...state, step: 'handoff', pendingProduct: null, errors: 0 },
           action: 'pause_bot',
+          effects,
         };
       }
       if (isNo(input)) {

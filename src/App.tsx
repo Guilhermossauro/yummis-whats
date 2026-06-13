@@ -277,7 +277,7 @@ export default function App() {
       localStorage.setItem('gw_bot_state', JSON.stringify(botStateRef.current));
 
       const registerEffect = result.effects?.find((effect) => effect.type === 'register_lead');
-      if (registerEffect) {
+      if (registerEffect && registerEffect.type === 'register_lead') {
         const { nome, email } = registerEffect.data;
         setLeads(prev => prev.map(l => l.id === stateKey ? { ...l, nome: nome || l.nome, email, cadastrado: 1 } : l));
         fetch(`${base}/api/bot/register-lead`, {
@@ -285,6 +285,15 @@ export default function App() {
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
           body: JSON.stringify({ phone: m.telefone, channel: m.channel, name: nome, email }),
         }).catch(() => {});
+      }
+
+      // Efeito de COMPRA CONFIRMADA: baixa o estoque do produto no catálogo.
+      const stockEffect = result.effects?.find((effect) => effect.type === 'decrement_stock');
+      if (stockEffect && stockEffect.type === 'decrement_stock') {
+        const { codigo, quantidade } = stockEffect.data;
+        setProducts(prev => prev.map(p =>
+          p.codigo === codigo ? { ...p, estoque: Math.max(0, (p.estoque || 0) - quantidade) } : p
+        ));
       }
 
       // Ação de handoff: pausa o bot no gateway (atendente assume)

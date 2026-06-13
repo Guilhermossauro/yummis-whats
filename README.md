@@ -70,6 +70,10 @@ O projeto tem **3 partes independentes**:
 - **Node.js 18 ou superior** (recomendado 20/22) e **npm**
 - Git
 - Um celular com WhatsApp (para parear via QR Code)
+- **PM2** opcional, recomendado para manter tudo rodando em segundo plano:
+  ```bash
+  npm install -g pm2
+  ```
 
 > O banco de dados é criado **automaticamente** na primeira execução — você **não** precisa instalar MySQL/Postgres.
 
@@ -117,6 +121,58 @@ node index.js
 ✔️ Sobe em **http://localhost:8080**:
 - **http://localhost:8080/sales/** → CRM
 - **http://localhost:8080/connection/** → Painel do Gateway
+
+---
+
+## 🔁 Rodando e reiniciando com PM2 (recomendado)
+
+Use o PM2 quando quiser deixar o projeto rodando em segundo plano, com restart fácil e logs centralizados.
+
+### 1. Preparar dependências e build do `/sales`
+```bash
+npm install
+npm run build:sales
+```
+
+### 2. Subir tudo com PM2
+```bash
+npm run pm2:start
+```
+
+Esse comando usa `ecosystem.config.cjs` e inicia:
+
+| Processo PM2 | URL | Função |
+|--------------|-----|--------|
+| `yummis-crm-dev` | `http://localhost:3050` | CRM em modo desenvolvimento |
+| `yummis-gateway` | `http://localhost:3060` | Gateway/API WhatsApp |
+| `yummis-centralizer` | `http://localhost:8080` | URL única com `/sales` e `/connection` |
+
+> Se alguma dessas portas já estiver aberta por um terminal antigo, feche o terminal/processo antigo antes de iniciar o PM2.
+
+### 3. Reiniciar após alterar código
+```bash
+npm run build:sales
+npm run pm2:restart
+```
+
+### 4. Ver status e logs
+```bash
+npm run pm2:status
+npm run pm2:logs
+```
+
+### 5. Parar ou remover do PM2
+```bash
+npm run pm2:stop
+npm run pm2:delete
+```
+
+### 6. Restart rápido, direto pelo PM2
+```bash
+pm2 restart yummis-gateway
+pm2 restart yummis-crm-dev
+pm2 restart yummis-centralizer
+```
 
 ---
 
@@ -247,12 +303,13 @@ yummis-whats/
 │   └── App.tsx
 ├── backend/              # Gateway
 │   ├── server.js         # API, Baileys, endpoints
-│   ├── botEngine.js      # Motor do bot (fluxo, cadastro, inatividade, handoff)
+│   ├── botEngine.js      # Registro de mensagens, cadastro, handoff e atendimento humano
 │   ├── botConfig.js      # Fluxo declarativo + tempos configuráveis
 │   ├── telegram.js       # Adapter Telegram (Bot API)
 │   ├── db.js             # Conexão SQLite + migrações + seed
 │   └── schema.sql        # Schema do banco
 ├── centralizer/          # Reverse proxy (/sales + /connection)
+├── ecosystem.config.cjs  # Processos PM2 do CRM, Gateway e Centralizador
 ├── package.json          # Frontend
 └── README.md
 ```
@@ -264,6 +321,7 @@ yummis-whats/
 - **WhatsApp em loop "Connection Failure"** → a sessão foi deslogada no celular. O sistema limpa as credenciais; basta **re-escanear o QR** em Canais → WhatsApp. Evite parear o mesmo número em duas instâncias ao mesmo tempo.
 - **`better-sqlite3` falhou ao instalar** → garanta Node 18+. Em alguns ambientes é preciso ter ferramentas de build (`windows-build-tools` / `build-essential`).
 - **Tela branca no `/sales`** → gere o build com `npm run build:sales` (base `/sales/`).
+- **PM2 não sobe algum processo** → rode `npm run pm2:logs` e verifique se a porta `3050`, `3060` ou `8080` já está ocupada por um terminal antigo.
 
 ---
 
