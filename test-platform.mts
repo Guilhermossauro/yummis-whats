@@ -1,10 +1,9 @@
-// Teste de integração da NOVA arquitetura:
-//  - cliente envia mensagem -> gateway só REGISTRA (não responde)
-//  - "plataforma" (este script, usando o processador REAL do front) lê o inbox,
-//    processa o fluxo e ENVIA a resposta pelo gateway (/api/gateway/send)
-// Rode: npx tsx test-platform.mts   (com o backend na porta 3060)
+// Teste do FLUXO GUIADO (rodando o processador REAL do front).
+//   interesse no produto -> cadastro -> confirmar dados -> dizer "não" (corrigir)
+//   -> refazer -> confirmar -> confirmar produto (foto) -> handoff.
+//   + teste de 3 erros / áudio -> atendente humano.
+// Rode: npx tsx test-platform.mts   (backend na 3060)
 
-// shim de localStorage para o processador rodar fora do navegador
 (globalThis as any).localStorage = {
   _d: {} as Record<string, string>,
   getItem(k: string) { return this._d[k] ?? null; },
@@ -12,85 +11,53 @@
   removeItem(k: string) { delete this._d[k]; },
 };
 
-import { processBotMessage } from './src/lib/botProcessor';
-
-const BASE = 'http://localhost:3060';
-const TOKEN = 'api_token_lojista_3050_default';
-const USER = 'user_1';
-const FROM = '5544900112233';
-const FROM_N = FROM.replace(/\D/g, '');
-
-const post = (url: string, body: any, auth = false) =>
-  fetch(BASE + url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(auth ? { Authorization: 'Bearer ' + TOKEN } : {}) },
-    body: JSON.stringify(body),
-  }).then((r) => r.json());
-
-const inbox = (since: number) =>
-  fetch(`${BASE}/api/inbox?since=${since}`, { headers: { Authorization: 'Bearer ' + TOKEN } }).then((r) => r.json());
-
-const creditos = () =>
-  fetch(`${BASE}/api/stats/${USER}`).then((r) => r.json()).then((s) => s.credits);
+import { processBotMessage, BotState } from './src/lib/botProcessor';
 
 const products = [
-  { codigo: 'VST001', nome: 'Vestido Floral Verão', preco: 159.9, estoque: 10, descricao: 'Vestido leve com estampa floral.', foto_path: 'https://picsum.photos/seed/vst001/400' },
-  { codigo: 'BLS002', nome: 'Blusa Cropped', preco: 79.9, estoque: 5, descricao: 'Blusa cropped canelada.', foto_path: 'https://picsum.photos/seed/bls002/400' },
+  { codigo: 'VST001', nome: 'Vestido Floral Verão', preco: 159.9, estoque: 10, descricao: 'Vestido leve estampa floral.', foto_path: 'https://picsum.photos/seed/vst001/400' },
 ];
+const ctx = { products };
 
-let since = 0;
-let state: string | undefined;
-
-async function customerSays(text: string) {
-  // 1) cliente envia (gateway só registra)
-  await post('/api/dev/sim-wa', { userId: USER, from: FROM, text, name: 'Cliente Teste' });
-  // 2) plataforma lê o inbox
-  const data = await inbox(since);
-  since = data.lastId;
-  // 3) processa cada mensagem 'in' deste cliente com o fluxo do front
-  const incoming = data.messages.filter((m: any) => m.direcao === 'in' && m.telefone === FROM_N);
-  for (const m of incoming) {
-    const res = processBotMessage(m.texto, state, { products, leadName: 'Cliente' });
-    state = res.nextBlockId;
-    if (res.action === 'pause_bot') {
-      await post('/api/bot/handoff', { phone: FROM, channel: 'whatsapp' }, true);
-    }
-    console.log(`\nCLIENTE: "${text}"`);
-    // 4) envia cada resposta (texto OU imagem) que o BOT montou, pelo gateway
-    for (const reply of res.replies) {
-      if (reply.type === 'image') {
-        await post('/api/gateway/send', { to: FROM, channel: 'whatsapp', image: reply.image, caption: reply.caption, actor: 'bot' }, true);
-        console.log('  BOT 📷 IMAGEM ->', reply.image);
-        console.log('        legenda ->', reply.caption.replace(/\n/g, ' / ').slice(0, 70));
-      } else {
-        await post('/api/gateway/send', { to: FROM, channel: 'whatsapp', message: reply.text, actor: 'bot' }, true);
-        console.log('  BOT ->', reply.text.split('\n').slice(0, 2).join(' / ').slice(0, 80));
-      }
-    }
-    if (res.action) console.log('  AÇÃO ->', res.action);
+function showReplies(replies: any[]) {
+  for (const r of replies) {
+    if (r.type === 'image') console.log('   🤖📷 [FOTO] ' + r.caption.split('\n').join(' / ').slice(0, 70));
+    else console.log('   🤖 ' + r.text.split('\n')[0].slice(0, 78));
   }
 }
 
-(async () => {
-  // sessão WhatsApp fake conectada (para o envio funcionar sem celular)
-  await post('/api/dev/fake-wa-connect', { userId: USER });
-  // baseline: ignora histórico
-  since = (await inbox(0)).lastId;
-  const c0 = await creditos();
+function run(label: string, msgs: string[]) {
+  console.log('\n================ ' + label + ' ================');
+  let state: BotState | undefined;
+  for (const m of msgs) {
+    const res = processBotMessage(m, state, ctx);
+    state = res.nextState;
+    console.log(`👤 "${m}"`);
+    showReplies(res.replies);
+    if (res.action) console.log('   ⚙️  AÇÃO: ' + res.action + '  | step=' + state.step + ' | erros=' + state.errors + ' | cadastrado=' + state.registered);
+    else console.log('   · step=' + state.step + ' | erros=' + state.errors + ' | cadastrado=' + state.registered);
+  }
+  return state;
+}
 
-  await customerSays('oi');
-  await customerSays('catálogo'); // matching por PALAVRA (em vez de número)
-  await customerSays('VST001');   // pede produto pelo CÓDIGO -> foto + ficha
-  await customerSays('Blusa Cropped'); // pede produto pelo NOME -> foto + ficha
-  await customerSays('oi');
-  await customerSays('4'); // falar com humano (número) -> pause_bot
+// FLUXO PRINCIPAL: interesse -> cadastro -> CORREÇÃO -> confirma -> produto -> handoff
+const s1 = run('Interesse → cadastro → correção → confirma produto', [
+  '#YMS:VST001',              // interesse via link (não cadastrado) -> pede nome
+  'Maria',                    // nome -> pede email
+  'maria@email',              // email inválido -> erro
+  'maria@email.com',          // email -> confirma dados
+  'não',                      // CORRIGIR -> volta ao nome
+  'Maria Silva',              // nome de novo -> email
+  'maria.silva@email.com',    // email -> confirma
+  'sim',                      // confirma cadastro -> mostra produto (foto) -> pede confirmação
+  'sim',                      // confirma produto -> handoff
+]);
+console.log('\n>>> Esperado: step=handoff, cadastrado=true. Obtido: step=' + s1?.step + ', cadastrado=' + s1?.registered);
 
-  // Verificações finais
-  const final = await inbox(since - 50);
-  const lead = (await fetch(`${BASE}/api/contacts/${USER}`).then((r) => r.json())).find((x: any) => x.telefone === FROM_N);
-  const c1 = await creditos();
-  console.log('\n========== VERIFICAÇÕES ==========');
-  console.log('Mensagens do bot entregues (out) no inbox:', final.messages.filter((m: any) => m.telefone === FROM_N && m.direcao === 'out').length);
-  console.log('bot_pausado após "falar com humano":', lead?.bot_pausado, '(esperado 1)');
-  console.log('Créditos: antes', c0, '-> depois', c1, '| debitados:', (c0 ?? 0) - (c1 ?? 0), '(só o bot)');
-})();
+// 3 ERROS / ÁUDIO -> atendente humano
+const s2 = run('3 erros (incluindo áudio) → atendente humano', [
+  'oi',          // menu
+  'xpto123',     // erro 1
+  '[áudio]',     // erro 2 (mídia)
+  'asdf',        // erro 3 -> handoff
+]);
+console.log('\n>>> Esperado: step=handoff por 3 erros. Obtido: step=' + s2?.step);

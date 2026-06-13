@@ -35,7 +35,7 @@ import AdminCustomerProfiles from './components/AdminCustomerProfiles';
 import { SQLProduct, SQLLead, SQLCart, SQLOrder, SQLMessageLog, WhatsAppConfig, SQLSeller, SQLEmployee } from './types';
 import { PRODUCTS } from './data/products';
 import { getSendMessageURL, getGatewayBaseURL, isGatewayMode } from './lib/gateway';
-import { processBotMessage, BotProduct } from './lib/botProcessor';
+import { processBotMessage, BotProduct, BotState } from './lib/botProcessor';
 import DashboardHome from './components/DashboardHome';
 
 export default function App() {
@@ -222,18 +222,26 @@ export default function App() {
   //  aqui no front com a origem de cada mensagem.
   // ------------------------------------------------------------------
   const gatewayLastIdRef = useRef<number>(Number(localStorage.getItem('gw_inbox_since') || 0));
-  // Estado do fluxo do bot por lead (bloco atual da conversa), persistido.
-  const botStateRef = useRef<Record<string, string>>(
+  // Estado do fluxo do bot por lead (máquina de estados), persistido.
+  const botStateRef = useRef<Record<string, BotState>>(
     JSON.parse(localStorage.getItem('gw_bot_state') || '{}')
   );
   // Na 1ª sincronização não respondemos o histórico (apenas marcamos a base).
   const firstSyncRef = useRef<boolean>(true);
+  // Número do WhatsApp conectado (para gerar links wa.me compartilháveis).
+  const [gatewayPhone, setGatewayPhone] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isGatewayMode(whatsAppConfig.mode) || !whatsAppConfig.apiKey) return;
     let alive = true;
     const base = getGatewayBaseURL();
     const token = whatsAppConfig.apiKey;
+
+    // Descobre o número conectado para montar os links compartilháveis.
+    fetch(`${base}/api/me`, { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (alive && d?.whatsapp?.phone) setGatewayPhone(d.whatsapp.phone); })
+      .catch(() => {});
 
     // Produtos atuais da plataforma (para o catálogo do bot e o card com foto)
     const readProducts = (): BotProduct[] => {
@@ -254,7 +262,7 @@ export default function App() {
         products: readProducts(),
         leadName: firstName,
       });
-      botStateRef.current[stateKey] = result.nextBlockId;
+      botStateRef.current[stateKey] = result.nextState;
       localStorage.setItem('gw_bot_state', JSON.stringify(botStateRef.current));
 
       // Ação de handoff: pausa o bot no gateway (atendente assume)
@@ -905,11 +913,12 @@ export default function App() {
             )}
 
             {activeTab === 'catalog' && (
-              <AdminCatalog 
+              <AdminCatalog
                 products={products}
                 onAddProduct={handleAddProduct}
                 onEditProduct={handleEditProduct}
                 onDeleteProduct={handleDeleteProduct}
+                gatewayPhone={gatewayPhone}
               />
             )}
 

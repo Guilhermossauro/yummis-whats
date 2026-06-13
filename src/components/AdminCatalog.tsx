@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Search, Edit2, Trash2, Check, X, Tag, Smartphone, Archive, ShoppingBag, DollarSign } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Check, X, Tag, Smartphone, Archive, ShoppingBag, DollarSign, Share2 } from 'lucide-react';
 import { SQLProduct } from '../types';
 
 interface CatalogProps {
@@ -7,6 +7,7 @@ interface CatalogProps {
   onAddProduct: (product: Omit<SQLProduct, 'id'>) => void;
   onEditProduct: (id: string, product: Partial<SQLProduct>) => void;
   onDeleteProduct: (id: string) => void;
+  gatewayPhone?: string | null;
 }
 
 const STOCK_IMAGES = [
@@ -18,8 +19,24 @@ const STOCK_IMAGES = [
   'https://images.unsplash.com/photo-1539252553119-a6e115520e5c?w=400&q=80'
 ];
 
-export default function AdminCatalog({ products, onAddProduct, onEditProduct, onDeleteProduct }: CatalogProps) {
+export default function AdminCatalog({ products, onAddProduct, onEditProduct, onDeleteProduct, gatewayPhone }: CatalogProps) {
   const [filterText, setFilterText] = useState('');
+  const [sharedId, setSharedId] = useState<string | null>(null);
+
+  // Gera o link wa.me com a frase de interesse + palavra-passe (#YMS:CODIGO)
+  // que o bot usa para identificar o produto automaticamente.
+  const buildShareLink = (p: SQLProduct) => {
+    const frase = `Olá! Tenho interesse no produto *${p.nome}* (cód ${p.codigo}). #YMS:${p.codigo}`;
+    const num = (gatewayPhone || '').replace(/\D/g, '');
+    return `https://wa.me/${num}?text=${encodeURIComponent(frase)}`;
+  };
+
+  const shareProduct = (p: SQLProduct) => {
+    const link = buildShareLink(p);
+    navigator.clipboard?.writeText(link).catch(() => {});
+    setSharedId(p.id);
+    setTimeout(() => setSharedId(null), 2000);
+  };
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -398,6 +415,13 @@ export default function AdminCatalog({ products, onAddProduct, onEditProduct, on
 
                   {/* Edit / Remove actions */}
                   <div className="flex gap-1">
+                    <button
+                      onClick={() => shareProduct(p)}
+                      className="p-1.5 bg-slate-950 border border-white/5 hover:border-emerald-500/30 rounded-lg text-slate-400 hover:text-emerald-400 transition-all cursor-pointer"
+                      title={gatewayPhone ? 'Copiar link de interesse (WhatsApp)' : 'Copiar link (conecte o WhatsApp para incluir o número)'}
+                    >
+                      {sharedId === p.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Share2 className="w-3.5 h-3.5" />}
+                    </button>
                     <button
                       onClick={() => openEditForm(p)}
                       className="p-1.5 bg-slate-950 border border-white/5 hover:border-indigo-500/30 rounded-lg text-slate-400 hover:text-indigo-400 transition-all cursor-pointer"

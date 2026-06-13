@@ -1,18 +1,17 @@
 /**
- * botProcessor.ts — Motor de fluxo do bot que roda NA PLATAFORMA (frontend).
+ * botProcessor.ts — Fluxo de atendimento guiado, processado NA PLATAFORMA.
  *
- * O gateway NÃO processa nada: ele entrega a mensagem recebida e a plataforma
- * decide a resposta com base no fluxo configurado (BotFlowBuilder → localStorage
- * 'sql_bot_flow', ou DEFAULT_FLOW).
+ * Fluxo:
+ *  1. Cliente demonstra interesse num produto (link wa.me com palavra-passe
+ *     #YMS:CODIGO, ou digitando o código/nome).
+ *  2. Se NÃO cadastrado → faz o cadastro (nome + e-mail) e confirma os dados.
+ *     - Se confirmar "não", volta ao início para editar as informações.
+ *  3. Se cadastrado → confirma o produto enviando a FOTO + detalhes.
+ *  4. Após 3 erros em qualquer etapa → encaminha para atendente humano.
+ *     Áudio e imagem contam como erro.
  *
- * Recursos:
- *  - Respostas de texto OU de imagem (card de produto com foto).
- *  - Opções casáveis por NÚMERO e/ou PALAVRA (ambos ao mesmo tempo).
- *  - Detecção de produto por código/nome → envia foto + ficha formatada.
+ * É uma função pura: (texto, estado, contexto) -> { replies, nextState, action }.
  */
-import { FlowBlock } from '../types';
-import { DEFAULT_FLOW } from '../data/flows';
-
 export interface BotProduct {
   codigo: string;
   nome: string;
@@ -27,159 +26,203 @@ export interface BotContext {
   leadName?: string;
 }
 
-/** Resposta do bot: texto simples ou imagem com legenda. */
 export type BotReply =
   | { type: 'text'; text: string }
   | { type: 'image'; image: string; caption: string };
 
+export interface BotState {
+  step: 'start' | 'reg_nome' | 'reg_email' | 'reg_confirm' | 'confirm_product' | 'menu' | 'handoff';
+  data: { nome?: string; email?: string };
+  errors: number;
+  registered: boolean;
+  pendingProduct?: string | null;
+}
+
 export interface BotResult {
   replies: BotReply[];
-  nextBlockId: string;
-  /** Ação do bloco (ex.: 'pause_bot' para handoff humano). */
-  action?: string;
-  fallback?: boolean;
+  nextState: BotState;
+  action?: 'pause_bot';
 }
 
-export function loadBotFlow(): FlowBlock[] {
-  try {
-    const saved = localStorage.getItem('sql_bot_flow');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length) return parsed;
-    }
-  } catch {
-    /* usa o padrão */
-  }
-  return DEFAULT_FLOW;
+export const PASSPHRASE_PREFIX = '#YMS:'; // marca o produto no link compartilhável
+const MAX_ERRORS = 3;
+
+const t = (text: string): BotReply => ({ type: 'text', text });
+const norm = (s: string) => (s || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+const isYes = (s: string) => /\b(sim|s|isso|confirmo|confirmar|ok|certo|correto|pode|claro|positivo|yes)\b/.test(norm(s));
+const isNo = (s: string) => /\b(nao|n|negativo|errado|incorreto|editar|corrigir|mudar|alterar)\b/.test(norm(s));
+const isMedia = (s: string) => /^\s*\[(áudio|audio|imagem|image|foto|sticker|figurinha|vídeo|video|mídia|midia|documento)\]/i.test(s || '');
+
+function initial(): BotState {
+  return { step: 'start', data: {}, errors: 0, registered: false, pendingProduct: null };
 }
 
-const GREETINGS = ['oi', 'ola', 'olá', 'começar', 'comecar', 'menu', 'ajuda', 'inicio', 'início', 'bom dia', 'boa tarde', 'boa noite'];
-
-// Normaliza para comparação: minúsculas + remove acentos (catálogo -> catalogo).
-const normalize = (t: string) =>
-  (t || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-const text = (t: string): BotReply => ({ type: 'text', text: t });
-
-function startBlock(flow: FlowBlock[]): FlowBlock {
-  return flow.find((b) => b.isStarting) || flow.find((b) => b.id === 'boas_vindas') || flow[0];
-}
-
-/**
- * Casa a opção digitada com um destino — aceitando NÚMERO e/ou PALAVRA-CHAVE
- * ao mesmo tempo, independente do optionType. Assim o cliente pode responder
- * "2" ou "catálogo" — o que preferir.
- */
-function matchOption(block: FlowBlock, norm: string): string | null {
-  if (block.type !== 'options' || !block.options?.length) return null;
-
-  // 1) Por número (índice da opção)
-  const n = parseInt(norm, 10);
-  if (!isNaN(n) && String(n) === norm && n >= 1 && n <= block.options.length) {
-    return block.options[n - 1].destinationBlockId;
-  }
-
-  // 2) Por palavra-chave / trigger (exato ou contém)
-  const matchType = block.keywordMatchType || 'exact';
-  const opt = block.options.find((o) =>
-    (o.trigger || '')
-      .toLowerCase()
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .some((trig) => (matchType === 'contains' ? norm.includes(trig) || trig.includes(norm) : norm === trig))
-  );
-  return opt ? opt.destinationBlockId : null;
-}
-
-/** Monta a mensagem de um bloco (texto + lista de opções + catálogo dinâmico). */
-function renderBlock(block: FlowBlock, ctx: BotContext): string {
-  let msg = (block.message || '').replace(/\{nome\}/g, ctx.leadName || 'cliente');
-
-  if (block.id === 'catalogo' && ctx.products && ctx.products.length) {
-    const list = ctx.products
-      .map((p) => `• *[${p.codigo}]* ${p.nome} — R$ ${Number(p.preco).toFixed(2)}${p.estoque > 0 ? '' : ' (esgotado)'}`)
-      .join('\n');
-    msg += `\n\n${list}\n\n📷 Envie o *código* (ex: ${ctx.products[0].codigo}) ou o *nome* de uma peça para ver a foto e os detalhes.`;
-  }
-
-  if (block.type === 'options' && block.options?.length) {
-    if (block.optionType === 'keyword') {
-      msg += '\n\n' + block.options.map((o) => `👉 *${o.trigger.split(',')[0]}* — ${o.label}`).join('\n');
-    } else {
-      msg += '\n\n' + block.options.map((o, i) => `*${i + 1}.* ${o.label}`).join('\n');
-    }
-  }
-  return msg;
-}
-
-/** Procura um produto pelo código (exato) ou nome (contém). */
-function findProduct(norm: string, products?: BotProduct[]): BotProduct | null {
+function findProduct(input: string, products?: BotProduct[]): BotProduct | null {
   if (!products?.length) return null;
-  const cleaned = norm.replace(/^c[oó]digo:?\s*/i, '').replace(/^comprar\s+/i, '').trim();
+  // palavra-passe do link: #YMS:CODIGO
+  const pass = input.match(/#YMS:([A-Za-z0-9_-]+)/i);
+  const wanted = pass ? pass[1] : null;
+  if (wanted) {
+    const byPass = products.find((p) => p.codigo.toLowerCase() === wanted.toLowerCase());
+    if (byPass) return byPass;
+  }
+  // código/nome digitado
+  const cleaned = norm(input).replace(/^c[oó]digo:?\s*/i, '').replace(/^comprar\s+/i, '').trim();
   return (
-    products.find((p) => p.codigo.toLowerCase() === cleaned) ||
-    products.find((p) => cleaned.length >= 3 && p.codigo.toLowerCase().includes(cleaned)) ||
-    products.find((p) => p.nome.toLowerCase() === cleaned) ||
-    products.find((p) => cleaned.length >= 4 && p.nome.toLowerCase().includes(cleaned)) ||
+    products.find((p) => norm(p.codigo) === cleaned) ||
+    products.find((p) => cleaned.length >= 3 && norm(p.codigo).includes(cleaned)) ||
+    products.find((p) => norm(p.nome) === cleaned) ||
+    products.find((p) => cleaned.length >= 4 && norm(p.nome).includes(cleaned)) ||
     null
   );
 }
 
 /** Card de produto: foto + ficha na estrutura solicitada. */
-function productReply(p: BotProduct): BotReply {
+function productCard(p: BotProduct): BotReply {
   const caption =
     `*${p.nome}*\n` +
     `_codigo: ${p.codigo}_\n` +
     `*R$ ${Number(p.preco).toFixed(2)}*` +
     (p.descricao ? `\n\n${p.descricao}` : '');
-  if (p.foto_path) return { type: 'image', image: p.foto_path, caption };
-  return text(caption);
+  return p.foto_path ? { type: 'image', image: p.foto_path, caption } : t(caption);
 }
 
-export function processBotMessage(input: string, stateBlockId: string | undefined, ctx: BotContext = {}): BotResult {
-  const flow = loadBotFlow();
-  const norm = normalize(input);
-  const start = startBlock(flow);
+function findByCode(code: string | null | undefined, products?: BotProduct[]): BotProduct | null {
+  if (!code) return null;
+  return products?.find((p) => p.codigo.toLowerCase() === code.toLowerCase()) || null;
+}
 
-  // Saudação / comando de menu -> reinicia no bloco inicial
-  if (GREETINGS.includes(norm)) {
-    return {
-      replies: [text(renderBlock(start, ctx))],
-      nextBlockId: start.id,
-      action: start.actionType && start.actionType !== 'none' ? start.actionType : undefined,
-    };
-  }
+export function processBotMessage(input: string, prev: BotState | undefined, ctx: BotContext = {}): BotResult {
+  let state: BotState = prev ? { ...prev } : initial();
+  const products = ctx.products || [];
 
-  const active = flow.find((b) => b.id === (stateBlockId || start.id)) || start;
-
-  // 1) Casa uma opção do bloco atual (número OU palavra)
-  let targetId = matchOption(active, norm);
-
-  // 2) Gatilho global: o texto bate com o id de um bloco
-  if (!targetId) {
-    const global = flow.find((b) => b.id === norm);
-    if (global) targetId = global.id;
-  }
-
-  if (targetId) {
-    const target = flow.find((b) => b.id === targetId) || active;
-    return {
-      replies: [text(renderBlock(target, ctx))],
-      nextBlockId: target.id,
-      action: target.actionType && target.actionType !== 'none' ? target.actionType : undefined,
-    };
-  }
-
-  // 3) Pedido de produto (código/nome) -> envia FOTO + ficha
-  const product = findProduct(norm, ctx.products);
-  if (product) {
-    return { replies: [productReply(product)], nextBlockId: active.id };
-  }
-
-  // 4) Não entendeu -> re-exibe o bloco atual
-  return {
-    replies: [text(`Desculpe, não entendi 🙈.\n\n${renderBlock(active, ctx)}`)],
-    nextBlockId: active.id,
-    fallback: true,
+  // Helper: registra erro -> após 3, encaminha para humano
+  const fail = (msg: string): BotResult => {
+    const errors = (state.errors || 0) + 1;
+    if (errors >= MAX_ERRORS) {
+      return {
+        replies: [t('Tive dificuldade em entender 😕. Vou te transferir para um *atendente humano*, um momento! 👨‍💻')],
+        nextState: { ...state, step: 'handoff', errors: 0 },
+        action: 'pause_bot',
+      };
+    }
+    return { replies: [t(msg)], nextState: { ...state, errors } };
   };
+
+  // Mídia (áudio/imagem) conta como erro em qualquer etapa
+  if (isMedia(input)) {
+    return fail('Por enquanto só consigo ler *mensagens de texto* 🙈. Pode escrever, por favor?');
+  }
+
+  // ------ Interesse em produto (link com palavra-passe, ou código/nome) ------
+  const product = findProduct(input, products);
+  if (product) {
+    state = { ...state, pendingProduct: product.codigo, errors: 0 };
+    if (!state.registered) {
+      return {
+        replies: [t(
+          `Que ótima escolha! 😍 Para seguir com *${product.nome}*, primeiro preciso te *cadastrar* no sistema.\n\n` +
+          `Qual é o seu *nome completo*?`
+        )],
+        nextState: { ...state, step: 'reg_nome' },
+      };
+    }
+    return {
+      replies: [productCard(product), t(`Você *confirma* o interesse em *${product.nome}*? (responda *sim* ou *não*)`)],
+      nextState: { ...state, step: 'confirm_product' },
+    };
+  }
+
+  // ------ Máquina de estados ------
+  switch (state.step) {
+    case 'reg_nome': {
+      const nome = input.trim();
+      if (nome.length < 2) return fail('Não entendi seu nome. Pode digitar seu *nome completo*?');
+      return {
+        replies: [t(`Prazer, ${nome.split(' ')[0]}! Agora me informe o seu *melhor e-mail*:`)],
+        nextState: { ...state, step: 'reg_email', data: { ...state.data, nome }, errors: 0 },
+      };
+    }
+
+    case 'reg_email': {
+      const email = input.trim();
+      if (!/^\S+@\S+\.\S+$/.test(email)) return fail('Esse e-mail não parece válido 🤔. Pode digitar um *e-mail* completo? (ex: nome@email.com)');
+      return {
+        replies: [t(
+          `Confira seus dados:\n\n` +
+          `👤 *Nome:* ${state.data.nome}\n` +
+          `📧 *E-mail:* ${email}\n\n` +
+          `Está tudo certo? Responda *sim* para confirmar ou *não* para corrigir.`
+        )],
+        nextState: { ...state, step: 'reg_confirm', data: { ...state.data, email }, errors: 0 },
+      };
+    }
+
+    case 'reg_confirm': {
+      if (isYes(input)) {
+        const prod = findByCode(state.pendingProduct, products);
+        const base: BotReply[] = [t('✅ Cadastro confirmado com sucesso! Seus dados foram salvos.')];
+        if (prod) {
+          return {
+            replies: [...base, productCard(prod), t(`Você *confirma* o interesse em *${prod.nome}*? (*sim* / *não*)`)],
+            nextState: { ...state, step: 'confirm_product', registered: true, errors: 0 },
+          };
+        }
+        return {
+          replies: [...base, t('Como posso te ajudar? Envie o *código* de um produto ou *catálogo*.')],
+          nextState: { ...state, step: 'menu', registered: true, errors: 0 },
+        };
+      }
+      if (isNo(input)) {
+        return {
+          replies: [t('Sem problema! Vamos corrigir do começo. Qual é o seu *nome completo*?')],
+          nextState: { ...state, step: 'reg_nome', data: {}, errors: 0 },
+        };
+      }
+      return fail('Por favor, responda *sim* para confirmar os dados ou *não* para corrigir.');
+    }
+
+    case 'confirm_product': {
+      const prod = findByCode(state.pendingProduct, products);
+      if (isYes(input)) {
+        return {
+          replies: [t(`🎉 Interesse em *${prod?.nome || 'seu produto'}* registrado! Um *atendente* vai falar com você para finalizar. Obrigado! 🙌`)],
+          nextState: { ...state, step: 'handoff', pendingProduct: null, errors: 0 },
+          action: 'pause_bot',
+        };
+      }
+      if (isNo(input)) {
+        return {
+          replies: [t('Tudo bem! Quer ver outra peça? Envie o *código* de outro produto ou *catálogo*.')],
+          nextState: { ...state, step: 'menu', pendingProduct: null, errors: 0 },
+        };
+      }
+      return fail('Responda *sim* para confirmar o produto ou *não* para escolher outro.');
+    }
+
+    default: {
+      // start / menu — saudação e ajuda
+      const n = norm(input);
+      if (['oi', 'ola', 'menu', 'inicio', 'bom dia', 'boa tarde', 'boa noite', 'comecar'].some((g) => n.includes(g))) {
+        return {
+          replies: [t(
+            `Olá! 👋 Bem-vindo à *Moda Express*!\n\n` +
+            `Envie o *código* de um produto que viu, ou digite *catálogo* para ver as peças disponíveis. 🛍️`
+          )],
+          nextState: { ...state, step: 'menu', errors: 0 },
+        };
+      }
+      if (n.includes('catalogo') || n.includes('produtos') || n.includes('colecao')) {
+        if (!products.length) return { replies: [t('Nosso catálogo está sendo atualizado, volte em breve! 😉')], nextState: { ...state, step: 'menu' } };
+        const list = products
+          .map((p) => `• *[${p.codigo}]* ${p.nome} — R$ ${Number(p.preco).toFixed(2)}${p.estoque > 0 ? '' : ' (esgotado)'}`)
+          .join('\n');
+        return {
+          replies: [t(`🛍️ *NOSSA COLEÇÃO*\n\n${list}\n\n📷 Envie o *código* (ex: ${products[0].codigo}) para ver a foto e os detalhes.`)],
+          nextState: { ...state, step: 'menu', errors: 0 },
+        };
+      }
+      return fail('Não entendi 🙈. Envie o *código* de um produto ou digite *catálogo*.');
+    }
+  }
 }

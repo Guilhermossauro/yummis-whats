@@ -23,6 +23,18 @@ app.use(express.json());
 // Session Manager for Baileys Connections
 const activeSessions = new Map();
 
+// Marcador para mensagens de mídia (sem texto) — usado pela plataforma.
+function mediaMarker(message) {
+  if (!message) return '';
+  if (message.audioMessage) return '[áudio]';
+  if (message.imageMessage) return '[imagem]';
+  if (message.videoMessage) return '[vídeo]';
+  if (message.stickerMessage) return '[figurinha]';
+  if (message.documentMessage) return '[documento]';
+  if (message.locationMessage) return '[localização]';
+  return '';
+}
+
 // Extrai o texto de uma mensagem do Baileys (vários formatos possíveis)
 function extractText(message) {
   if (!message) return '';
@@ -139,7 +151,8 @@ async function onWhatsAppMessages(userId, sock, msgUpdate) {
   message.chatId = chatId;
   message.isGroup = String(chatId).endsWith('@g.us');
 
-  const text = extractText(message.message);
+  // Texto OU marcador de mídia (áudio/imagem/etc) — a plataforma trata mídia como erro.
+  const text = extractText(message.message) || mediaMarker(message.message);
   const phone = String(sender).split('@')[0].split(':')[0];
 
   // LOG das mensagens recebidas pelo próprio WhatsApp (aparece no console do gateway)
@@ -897,6 +910,18 @@ app.get('/api/inbox', (req, res) => {
   ).all(since, user.id);
   const lastId = rows.length ? rows[rows.length - 1].id : since;
   res.json({ lastId, messages: rows });
+});
+
+// Dados do usuário autenticado + número do WhatsApp conectado (para links wa.me).
+app.get('/api/me', (req, res) => {
+  const user = userFromAuth(req);
+  if (!user) return res.status(401).json({ error: 'Token Bearer inválido.' });
+  const s = activeSessions.get(user.id);
+  res.json({
+    id: user.id,
+    username: user.username,
+    whatsapp: { status: s ? s.status : 'DISCONNECTED', phone: s && s.phone ? s.phone : null },
+  });
 });
 
 // Contatos Recentes do vendedor (conta conectada) — para o painel do gateway.
