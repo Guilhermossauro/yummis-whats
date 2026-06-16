@@ -30,7 +30,7 @@ type LayoutDefaults = {
   sections: StorefrontSection[];
 };
 
-const DEFAULT_SECTION_IDS: StorefrontSectionId[] = ['hero', 'categories', 'filters', 'featured', 'products', 'about', 'benefits', 'footer'];
+const DEFAULT_SECTION_IDS: StorefrontSectionId[] = ['categories', 'filters', 'featured', 'products', 'about', 'benefits', 'footer'];
 const DEFAULT_PRODUCT_PAGE_ELEMENT_IDS: StorefrontProductElementId[] = ['detail_breadcrumb', 'detail_showcase', 'detail_specs', 'detail_actions', 'detail_trust'];
 const DEFAULT_CART_PAGE_ELEMENT_IDS: StorefrontCartElementId[] = ['cart_header', 'cart_empty', 'cart_items', 'cart_summary'];
 
@@ -67,7 +67,7 @@ function sectionLibrary(layout: StoreLayoutType): Record<StorefrontSectionId, { 
 
   if (layout === 'fashion') {
     return {
-      hero: { title: 'Editorial da coleção', subtitle: 'Bloco principal com storytelling visual.' },
+      hero: { title: 'Capa da coleção', subtitle: 'Bloco principal com banner e destaques visuais.' },
       categories: { title: 'Sessões da coleção', subtitle: 'Looks, peças e tendências da marca.' },
       ...common,
     };
@@ -287,7 +287,7 @@ const LAYOUT_DEFAULTS: Record<StoreLayoutType, LayoutDefaults> = {
     option: {
       key: 'fashion',
       label: '👗 Loja de modas',
-      title: 'Editorial de coleção com clima premium',
+      title: 'Loja de modas com clima premium',
       subtitle: 'Hero forte, cards altos e visual de marca',
       description: 'Ideal para boutiques, lojas femininas, roupas, acessórios e coleções cápsula.',
     },
@@ -307,7 +307,7 @@ const LAYOUT_DEFAULTS: Record<StoreLayoutType, LayoutDefaults> = {
       topTitle: 'Closet Oficial',
       heroBadge: 'Coleção em destaque',
       heroTitle: 'Crie uma vitrine que valoriza sua marca e o desejo de compra',
-      heroSubtitle: 'Mostre editorial, destaque looks completos e mantenha o atendimento consultivo no WhatsApp.',
+      heroSubtitle: 'Mostre lançamentos, destaque looks completos e mantenha o atendimento consultivo no WhatsApp.',
       searchPlaceholder: 'Buscar looks, tamanhos ou coleções',
       minOrderText: 'Compra mínima: R$ 15,00',
       deliveryText: 'Envio e retirada',

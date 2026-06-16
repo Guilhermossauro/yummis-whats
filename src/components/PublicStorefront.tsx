@@ -509,7 +509,7 @@ function renderHomeSection({
   onAdd: (product: ProductWithMeta) => void;
 }) {
   if (section.id === 'hero') {
-    return <HeroSection layout={layout} config={config} bannerStyle={bannerStyle} storeName={storeName} payload={payload} products={featuredProducts.length ? featuredProducts : allProducts.slice(0, 4)} />;
+    return null;
   }
   if (section.id === 'categories') {
     if (!categoryChips.length) return null;
@@ -607,6 +607,239 @@ function StoreLogo({ logoUrl, storeName, color, size = 'large' }: { logoUrl?: st
   );
 }
 
+function heroFallbackCopy(layout: StoreLayoutType) {
+  switch (layout) {
+    case 'fashion':
+      return 'Modelagens escolhidas para inspirar looks marcantes e deixar a compra mais gostosa do primeiro clique ao carrinho.';
+    case 'restaurant':
+      return 'Sabores em destaque, combinações irresistíveis e favoritos prontos para abrir o apetite logo na chegada.';
+    case 'electronics':
+      return 'Tecnologia em evidência, lançamentos atuais e uma seleção pensada para facilitar sua escolha.';
+    case 'services':
+      return 'Especialidades apresentadas com clareza para você entender rápido e seguir com mais confiança.';
+    case 'beauty':
+      return 'Lançamentos, kits e queridinhos reunidos em uma experiência leve, bonita e fácil de explorar.';
+    case 'market':
+      return 'Ofertas, itens do dia e favoritos organizados para você encontrar tudo com mais rapidez.';
+    default:
+      return 'Destaques selecionados para você encontrar o que procura com mais facilidade e seguir comprando sem complicação.';
+  }
+}
+
+function heroFallbackBackground(layout: StoreLayoutType, config: StorefrontConfig) {
+  switch (layout) {
+    case 'fashion':
+      return 'radial-gradient(circle at 18% 18%, rgba(255,255,255,0.82), transparent 28%), radial-gradient(circle at 85% 18%, rgba(255,255,255,0.24), transparent 22%), linear-gradient(135deg, #f7eee8 0%, #d49dd8 42%, #2c1248 100%)';
+    case 'restaurant':
+      return 'radial-gradient(circle at 18% 18%, rgba(255,255,255,0.28), transparent 24%), linear-gradient(135deg, #1f1728 0%, #532d21 45%, #1f7a54 100%)';
+    case 'electronics':
+      return 'radial-gradient(circle at 12% 14%, rgba(56,189,248,0.26), transparent 26%), radial-gradient(circle at 78% 20%, rgba(167,139,250,0.24), transparent 22%), linear-gradient(135deg, #020617 0%, #0f172a 45%, #1d4ed8 100%)';
+    case 'services':
+      return 'radial-gradient(circle at 82% 18%, rgba(255,255,255,0.24), transparent 22%), linear-gradient(135deg, #eff6ff 0%, #c4d9ff 48%, #4f46e5 100%)';
+    case 'beauty':
+      return 'radial-gradient(circle at 15% 20%, rgba(255,255,255,0.9), transparent 28%), linear-gradient(135deg, #fff7fb 0%, #ffd7ec 44%, #9d4edd 100%)';
+    case 'market':
+      return 'radial-gradient(circle at 82% 16%, rgba(255,255,255,0.24), transparent 22%), linear-gradient(135deg, #f8fafc 0%, #d8f7e7 46%, #15803d 100%)';
+    default:
+      return `radial-gradient(circle at 15% 20%, rgba(255,255,255,0.46), transparent 28%), linear-gradient(135deg, ${config.theme.primary} 0%, ${config.theme.secondary} 56%, #18181b 100%)`;
+  }
+}
+
+function heroShowcaseLabel(layout: StoreLayoutType) {
+  switch (layout) {
+    case 'fashion':
+      return 'Coleção em destaque';
+    case 'restaurant':
+      return 'Banner de sabor';
+    case 'electronics':
+      return 'Visual de lançamentos';
+    case 'services':
+      return 'Apresentação premium';
+    case 'beauty':
+      return 'Destaque da vitrine';
+    case 'market':
+      return 'Oferta principal';
+    default:
+      return 'Vitrine em destaque';
+  }
+}
+
+const HeroInfoPill: React.FC<{
+  icon: React.ComponentType<{ className?: string }>;
+  text: string;
+  tone?: 'light' | 'dark';
+}> = ({
+  icon: Icon,
+  text,
+  tone = 'light',
+}) => {
+  const dark = tone === 'dark';
+  return (
+    <span
+      className="inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-black backdrop-blur-md"
+      style={dark
+        ? { borderColor: 'rgba(255,255,255,0.16)', backgroundColor: 'rgba(15,23,42,0.5)', color: 'white' }
+        : { borderColor: 'rgba(124,58,237,0.12)', backgroundColor: 'rgba(255,255,255,0.88)', color: '#2e1065' }}
+    >
+      <Icon className="w-4 h-4" />
+      {text}
+    </span>
+  );
+};
+
+const HeroMiniProductCard: React.FC<{
+  product: ProductWithMeta;
+  config: StorefrontConfig;
+  tone?: 'light' | 'dark';
+  compact?: boolean;
+}> = ({
+  product,
+  config,
+  tone = 'light',
+  compact = false,
+}) => {
+  const dark = tone === 'dark';
+  return (
+    <div
+      className={`rounded-[1.55rem] border backdrop-blur-md shadow-[0_26px_55px_-35px_rgba(15,23,42,0.72)] ${compact ? 'p-3' : 'p-4'}`}
+      style={dark
+        ? { borderColor: 'rgba(255,255,255,0.14)', backgroundColor: 'rgba(8,15,30,0.68)', color: 'white' }
+        : { borderColor: config.theme.border, backgroundColor: 'rgba(255,255,255,0.92)', color: config.theme.text }}
+    >
+      <div className="flex items-center gap-3">
+        <div className={`rounded-[1.2rem] overflow-hidden bg-zinc-100 shrink-0 ${compact ? 'w-14 h-14' : 'w-16 h-16'}`}>
+          {product.foto_path ? (
+            <img src={product.foto_path} alt={product.nome} className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-zinc-300">
+              <ShoppingBag className={compact ? 'w-6 h-6' : 'w-7 h-7'} />
+            </div>
+          )}
+        </div>
+        <div className="min-w-0">
+          <p className={`text-[10px] uppercase font-black tracking-[0.24em] ${dark ? 'text-white/70' : ''}`} style={dark ? undefined : { color: config.theme.primary }}>
+            {product.primaryCategory}
+          </p>
+          <h3 className={`mt-1 font-black line-clamp-2 ${compact ? 'text-sm' : 'text-base'}`}>{product.nome}</h3>
+          <p className={`mt-2 font-black ${compact ? 'text-sm' : 'text-lg'}`} style={{ color: dark ? '#e9d5ff' : config.theme.secondary }}>
+            {money(product.preco)}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const HeroMediaPanel: React.FC<{
+  layout: StoreLayoutType;
+  config: StorefrontConfig;
+  bannerStyle: React.CSSProperties;
+  bannerUrl?: string | null;
+  storeName: string;
+  products: ProductWithMeta[];
+}> = ({
+  layout,
+  config,
+  bannerStyle,
+  bannerUrl,
+  storeName,
+  products,
+}) => {
+  const dark = layout === 'electronics';
+  const visibleProducts = products.slice(0, 3);
+  const overlay = layout === 'fashion'
+    ? 'linear-gradient(135deg, rgba(28,18,46,0.04) 0%, rgba(52,20,82,0.34) 58%, rgba(10,10,18,0.6) 100%)'
+    : layout === 'restaurant'
+      ? 'linear-gradient(135deg, rgba(7,10,18,0.1) 0%, rgba(18,24,28,0.34) 48%, rgba(8,12,16,0.72) 100%)'
+      : layout === 'services'
+        ? 'linear-gradient(135deg, rgba(79,70,229,0.12) 0%, rgba(30,41,59,0.2) 50%, rgba(15,23,42,0.68) 100%)'
+        : layout === 'beauty'
+          ? 'linear-gradient(135deg, rgba(255,255,255,0.02) 0%, rgba(157,78,221,0.28) 52%, rgba(46,16,101,0.58) 100%)'
+          : layout === 'market'
+            ? 'linear-gradient(135deg, rgba(20,83,45,0.06) 0%, rgba(21,128,61,0.18) 48%, rgba(17,24,39,0.7) 100%)'
+            : 'linear-gradient(135deg, rgba(4,8,16,0.08) 0%, rgba(32,23,68,0.24) 52%, rgba(17,24,39,0.72) 100%)';
+
+  return (
+    <div
+      className={`relative min-h-[420px] overflow-hidden rounded-[2.2rem] border ${dark ? 'bg-slate-950' : 'bg-white'}`}
+      style={{ borderColor: dark ? 'rgba(255,255,255,0.14)' : config.theme.border }}
+    >
+      {bannerUrl ? (
+        <div
+          className="absolute inset-0"
+          style={{ ...bannerStyle, backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }}
+        />
+      ) : (
+        <div className="absolute inset-0" style={{ background: heroFallbackBackground(layout, config) }} />
+      )}
+      <div className="absolute inset-0" style={{ background: overlay }} />
+      <div className="absolute -right-12 -top-14 h-48 w-48 rounded-full blur-3xl opacity-35" style={{ backgroundColor: config.theme.secondary }} />
+      <div className="absolute -left-10 bottom-0 h-40 w-40 rounded-full blur-3xl opacity-25" style={{ backgroundColor: config.theme.primary }} />
+
+      {!bannerUrl && visibleProducts.length > 0 && (
+        <div className="absolute inset-0 p-4 sm:p-5">
+          <div className="grid h-full grid-cols-2 grid-rows-2 gap-3">
+            {visibleProducts[0] && (
+              <div className="row-span-2 rounded-[1.9rem] overflow-hidden border border-white/20 bg-white/10 shadow-2xl backdrop-blur-sm">
+                {visibleProducts[0].foto_path ? (
+                  <img src={visibleProducts[0].foto_path} alt={visibleProducts[0].nome} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-white/70"><ShoppingBag className="w-12 h-12" /></div>
+                )}
+              </div>
+            )}
+            {visibleProducts[1] && (
+              <div className="rounded-[1.6rem] overflow-hidden border border-white/16 bg-white/10 shadow-xl backdrop-blur-sm">
+                {visibleProducts[1].foto_path ? (
+                  <img src={visibleProducts[1].foto_path} alt={visibleProducts[1].nome} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-white/70"><ShoppingBag className="w-8 h-8" /></div>
+                )}
+              </div>
+            )}
+            {visibleProducts[2] && (
+              <div className="rounded-[1.6rem] overflow-hidden border border-white/16 bg-white/10 shadow-xl backdrop-blur-sm">
+                {visibleProducts[2].foto_path ? (
+                  <img src={visibleProducts[2].foto_path} alt={visibleProducts[2].nome} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-white/70"><ShoppingBag className="w-8 h-8" /></div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="relative z-10 flex h-full min-h-[420px] flex-col justify-between p-5 sm:p-6 lg:p-7">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <span className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.32em] text-white backdrop-blur-md" style={{ borderColor: 'rgba(255,255,255,0.18)', backgroundColor: 'rgba(15,23,42,0.26)' }}>
+            {layout === 'electronics' ? <Zap className="w-3.5 h-3.5" /> : layout === 'beauty' ? <Sparkles className="w-3.5 h-3.5" /> : <Star className="w-3.5 h-3.5" />}
+            {heroShowcaseLabel(layout)}
+          </span>
+          <span className="rounded-full bg-black/35 px-3 py-1.5 text-[11px] font-black text-white/90 backdrop-blur-md">
+            {bannerUrl ? 'nova coleção' : 'seleção especial'}
+          </span>
+        </div>
+
+        <div className="grid items-end gap-4 sm:grid-cols-[1.08fr_0.92fr]">
+          <div className="max-w-[13rem] text-white sm:max-w-md">
+            <p className="text-[11px] font-black uppercase tracking-[0.32em] text-white/72">{storeName}</p>
+            <h3 className="mt-3 text-xl font-black leading-tight sm:text-4xl">
+              {bannerUrl ? 'Descubra os destaques que definem esta vitrine.' : 'Escolhas pensadas para abrir sua próxima compra.'}
+            </h3>
+            <p className="mt-2 max-w-[13rem] text-xs leading-relaxed text-white/84 sm:mt-3 sm:max-w-md sm:text-base">{heroFallbackCopy(layout)}</p>
+          </div>
+          <div className="hidden gap-3 sm:grid">
+            {visibleProducts.slice(0, 2).map((product) => (
+              <HeroMiniProductCard key={product.id} product={product} config={config} tone="dark" compact />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 function HeroSection({
   layout,
   config,
@@ -622,6 +855,10 @@ function HeroSection({
   payload: PublicStorePayload;
   products: ProductWithMeta[];
 }) {
+  const heroTitle = hasText(config.labels.heroTitle) ? config.labels.heroTitle : storeName;
+  const heroSubtitle = hasText(config.labels.heroSubtitle) ? config.labels.heroSubtitle : heroFallbackCopy(layout);
+  const leadProduct = products[0];
+  const heroCategories = Array.from(new Set(products.map(product => cleanText(product.primaryCategory)).filter(Boolean))).slice(0, 4);
   const summaryCards = [
     { icon: Clock3, text: 'Hoje 18:30 às 23:50' },
     { icon: Truck, text: config.labels.deliveryText },
@@ -630,40 +867,54 @@ function HeroSection({
 
   if (layout === 'restaurant') {
     return (
-      <section className="px-4 pt-5">
-        <div className="max-w-7xl mx-auto overflow-hidden rounded-[2rem] border shadow-xl" style={{ borderColor: config.theme.border, backgroundColor: config.theme.surface }}>
-          <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr]">
-            <div className="p-6 sm:p-8 text-white" style={bannerStyle}>
-              <StoreLogo logoUrl={payload.store.logoUrl} storeName={storeName} color={config.theme.primary} />
-              <span className="mt-5 inline-flex rounded-full bg-white/15 px-3 py-1 text-[11px] font-black uppercase">{config.labels.heroBadge}</span>
-              <h1 className="mt-4 text-3xl sm:text-5xl font-black max-w-2xl leading-tight">{storeName}</h1>
-              {hasText(config.labels.heroSubtitle) && <p className="mt-3 max-w-xl text-sm sm:text-base text-white/90">{config.labels.heroSubtitle}</p>}
-              <div className="mt-6 flex flex-wrap gap-2">
-                {summaryCards.map(({ icon: Icon, text }) => (
-                  <span key={text} className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-2 text-xs font-bold">
-                    <Icon className="w-4 h-4" />
-                    {text}
-                  </span>
-                ))}
+      <section className="px-4 pt-6">
+        <div className="max-w-7xl mx-auto overflow-hidden rounded-[2.5rem] border bg-white shadow-[0_35px_90px_-40px_rgba(15,23,42,0.4)]" style={{ borderColor: config.theme.border }}>
+          <div className="grid grid-cols-1 lg:grid-cols-[0.94fr_1.06fr]">
+            <div className="relative overflow-hidden px-6 py-7 sm:px-8 sm:py-9 lg:px-10 lg:py-10" style={{ background: 'linear-gradient(135deg, #fffaf5 0%, #ffffff 52%, #eefcf5 100%)' }}>
+              <div className="absolute -left-16 top-0 h-48 w-48 rounded-full blur-3xl opacity-20" style={{ backgroundColor: config.theme.secondary }} />
+              <div className="absolute right-0 top-24 h-52 w-52 rounded-full blur-3xl opacity-20" style={{ backgroundColor: config.theme.primary }} />
+              <div className="relative z-10">
+                <div className="flex items-start gap-4">
+                  <StoreLogo logoUrl={payload.store.logoUrl} storeName={storeName} color={config.theme.primary} />
+                  <div>
+                    <span className="inline-flex rounded-full px-3 py-1 text-[11px] font-black uppercase text-white" style={{ backgroundColor: config.theme.primary }}>
+                      {config.labels.heroBadge}
+                    </span>
+                    <p className="mt-3 text-[11px] font-black uppercase tracking-[0.35em]" style={{ color: config.theme.primary }}>
+                      Sabores em destaque
+                    </p>
+                  </div>
+                </div>
+                <h1 className="mt-8 max-w-xl text-4xl sm:text-5xl lg:text-6xl font-black leading-[0.98]" style={{ color: '#26162f' }}>
+                  {heroTitle}
+                </h1>
+                <p className="mt-4 max-w-xl text-base leading-relaxed" style={{ color: '#645261' }}>
+                  {heroSubtitle}
+                </p>
+                <div className="mt-6 flex flex-wrap gap-2">
+                  {summaryCards.map(({ icon: Icon, text }) => (
+                    <HeroInfoPill key={text} icon={Icon} text={text} />
+                  ))}
+                </div>
+                <div className="mt-8 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-[1.7rem] border bg-white/92 p-5 shadow-[0_24px_60px_-42px_rgba(15,23,42,0.35)]" style={{ borderColor: config.theme.border }}>
+                    <p className="text-[11px] font-black uppercase tracking-[0.3em]" style={{ color: config.theme.primary }}>Destaque de hoje</p>
+                    <h3 className="mt-3 text-xl font-black" style={{ color: '#26162f' }}>{leadProduct?.nome || storeName}</h3>
+                    <p className="mt-2 text-sm" style={{ color: '#645261' }}>
+                      {leadProduct ? `Peça em evidência por ${money(leadProduct.preco)}.` : 'Favoritos escolhidos para começar sua experiência com mais vontade.'}
+                    </p>
+                  </div>
+                  <div className="rounded-[1.7rem] border p-5" style={{ borderColor: config.theme.border, backgroundColor: 'rgba(255,255,255,0.75)' }}>
+                    <p className="text-[11px] font-black uppercase tracking-[0.3em]" style={{ color: config.theme.secondary }}>Escolha com mais clareza</p>
+                    <p className="mt-3 text-sm leading-relaxed" style={{ color: '#645261' }}>
+                      {hasText(config.labels.minOrderText) ? config.labels.minOrderText : 'Favoritos organizados para você decidir com mais rapidez.'}
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
-            <div className="p-6 bg-white">
-              <p className="text-[11px] font-black uppercase tracking-[0.3em]" style={{ color: config.theme.primary }}>{config.labels.featuredTitle}</p>
-              <div className="mt-4 space-y-3">
-                {products.slice(0, 3).map((product) => (
-                  <div key={product.id} className="flex items-center gap-3 rounded-2xl border p-3" style={{ borderColor: config.theme.border, backgroundColor: config.theme.card }}>
-                    <div className="w-20 h-20 rounded-2xl overflow-hidden bg-zinc-100 shrink-0">
-                      {product.foto_path ? <img src={product.foto_path} alt={product.nome} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-zinc-300"><ShoppingBag className="w-8 h-8" /></div>}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-black uppercase tracking-wide" style={{ color: config.theme.primary }}>{product.primaryCategory}</p>
-                      <h3 className="font-black text-lg line-clamp-1">{product.nome}</h3>
-                      <p className="text-sm mt-1 font-black" style={{ color: config.theme.secondary }}>{money(product.preco)}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <p className="mt-5 text-sm font-bold" style={{ color: config.theme.text }}>{config.labels.minOrderText}</p>
+            <div className="p-4 sm:p-5 lg:p-6" style={{ background: 'linear-gradient(145deg, rgba(31,122,84,0.08) 0%, rgba(255,255,255,0.94) 42%, rgba(83,45,33,0.08) 100%)' }}>
+              <HeroMediaPanel layout={layout} config={config} bannerStyle={bannerStyle} bannerUrl={payload.store.bannerUrl} storeName={storeName} products={products} />
             </div>
           </div>
         </div>
@@ -674,28 +925,61 @@ function HeroSection({
   if (layout === 'fashion') {
     return (
       <section className="px-4 pt-6">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] gap-4">
-          <div className="rounded-[2rem] p-7 sm:p-10 text-white overflow-hidden shadow-xl" style={bannerStyle}>
-            <StoreLogo logoUrl={payload.store.logoUrl} storeName={storeName} color={config.theme.primary} />
-            <div className="mt-6 max-w-2xl">
-              <span className="inline-flex rounded-full bg-white/15 px-3 py-1 text-[11px] font-black uppercase">{config.labels.heroBadge}</span>
-              <h1 className="mt-4 text-4xl sm:text-6xl font-black leading-[1.05]">{hasText(config.labels.heroTitle) ? config.labels.heroTitle : storeName}</h1>
-              {hasText(config.labels.heroSubtitle) && <p className="mt-4 text-base text-white/85">{config.labels.heroSubtitle}</p>}
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            {products.slice(0, 4).map((product) => (
-              <div key={product.id} className={`rounded-[1.8rem] overflow-hidden shadow-lg border bg-white ${products.indexOf(product) === 0 ? 'col-span-2' : ''}`} style={{ borderColor: config.theme.border }}>
-                <div className={`${products.indexOf(product) === 0 ? 'aspect-[16/10]' : 'aspect-[4/5]'} bg-zinc-100`}>
-                  {product.foto_path ? <img src={product.foto_path} alt={product.nome} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-zinc-300"><ShoppingBag className="w-10 h-10" /></div>}
+        <div className="max-w-7xl mx-auto overflow-hidden rounded-[2.7rem] border bg-white shadow-[0_38px_100px_-44px_rgba(15,23,42,0.44)]" style={{ borderColor: config.theme.border }}>
+          <div className="grid grid-cols-1 lg:grid-cols-[0.92fr_1.08fr]">
+            <div className="relative overflow-hidden px-6 py-7 sm:px-8 sm:py-9 lg:px-10 lg:py-10" style={{ background: 'linear-gradient(135deg, #fbf6f2 0%, #fffdfd 52%, #f4ebff 100%)' }}>
+              <div className="absolute -left-10 top-10 h-40 w-40 rounded-full blur-3xl opacity-20" style={{ backgroundColor: config.theme.secondary }} />
+              <div className="absolute right-0 bottom-0 h-52 w-52 rounded-full blur-3xl opacity-15" style={{ backgroundColor: config.theme.primary }} />
+              <div className="absolute left-8 top-8 h-28 w-28 rounded-full border opacity-30" style={{ borderColor: config.theme.primary }} />
+              <div className="relative z-10">
+                <div className="flex items-start gap-4">
+                  <StoreLogo logoUrl={payload.store.logoUrl} storeName={storeName} color={config.theme.primary} />
+                  <div>
+                    <span className="inline-flex rounded-full px-3 py-1 text-[11px] font-black uppercase text-white" style={{ backgroundColor: config.theme.primary }}>
+                      {config.labels.heroBadge}
+                    </span>
+                    <p className="mt-3 text-[11px] font-black uppercase tracking-[0.35em]" style={{ color: config.theme.primary }}>
+                      Lançamentos em destaque
+                    </p>
+                  </div>
                 </div>
-                <div className="p-4">
-                  <p className="text-[10px] uppercase font-black tracking-wider" style={{ color: config.theme.primary }}>{product.primaryCategory}</p>
-                  <h3 className="mt-1 text-lg font-black line-clamp-1">{product.nome}</h3>
-                  <p className="text-sm mt-2 font-bold" style={{ color: config.theme.secondary }}>{money(product.preco)}</p>
+                <div className="mt-8 max-w-xl">
+                  <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black leading-[0.94]" style={{ color: '#2b1649' }}>
+                    {heroTitle}
+                  </h1>
+                  <p className="mt-4 text-base sm:text-lg leading-relaxed" style={{ color: '#6b5b7d' }}>
+                    {heroSubtitle}
+                  </p>
+                </div>
+                <div className="mt-6 flex flex-wrap gap-2">
+                  {summaryCards.map(({ icon: Icon, text }) => (
+                    <HeroInfoPill key={text} icon={Icon} text={text} />
+                  ))}
+                </div>
+                <div className="mt-8 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-[1.75rem] border bg-white/92 p-5 shadow-[0_24px_65px_-42px_rgba(15,23,42,0.34)]" style={{ borderColor: config.theme.border }}>
+                    <p className="text-[11px] font-black uppercase tracking-[0.32em]" style={{ color: config.theme.primary }}>Peça que chama atenção</p>
+                    <h3 className="mt-3 text-xl font-black" style={{ color: '#2b1649' }}>{leadProduct?.nome || storeName}</h3>
+                    <p className="mt-2 text-sm" style={{ color: '#6b5b7d' }}>
+                      {leadProduct ? `A partir de ${money(leadProduct.preco)} para abrir sua coleção com força.` : 'Seleção pensada para começar sua visita pelos looks mais desejados.'}
+                    </p>
+                  </div>
+                  <div className="rounded-[1.75rem] border p-5" style={{ borderColor: config.theme.border, backgroundColor: 'rgba(255,255,255,0.74)' }}>
+                    <p className="text-[11px] font-black uppercase tracking-[0.32em]" style={{ color: config.theme.secondary }}>Categorias em foco</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {(heroCategories.length ? heroCategories : ['Coleção premium', 'Novidades']).map((label) => (
+                        <span key={label} className="rounded-full border px-3 py-1.5 text-xs font-black" style={{ borderColor: config.theme.border, color: '#4c1d95', backgroundColor: '#ffffff' }}>
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
-            ))}
+            </div>
+            <div className="p-4 sm:p-5 lg:p-6" style={{ background: 'linear-gradient(145deg, rgba(255,255,255,0.8) 0%, rgba(233,213,255,0.56) 100%)' }}>
+              <HeroMediaPanel layout={layout} config={config} bannerStyle={bannerStyle} bannerUrl={payload.store.bannerUrl} storeName={storeName} products={products} />
+            </div>
           </div>
         </div>
       </section>
@@ -704,42 +988,45 @@ function HeroSection({
 
   if (layout === 'electronics') {
     return (
-      <section className="px-4 pt-5">
-        <div className="max-w-7xl mx-auto rounded-[2rem] overflow-hidden border shadow-xl" style={{ borderColor: config.theme.border, backgroundColor: '#0f172a', color: 'white' }}>
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px]">
-            <div className="p-7 sm:p-10" style={bannerStyle}>
-              <div className="flex items-center gap-4">
-                <StoreLogo logoUrl={payload.store.logoUrl} storeName={storeName} color={config.theme.primary} />
-                <div>
-                  <p className="text-[11px] uppercase font-black tracking-[0.35em] text-white/70">{config.labels.heroBadge}</p>
-                  <h1 className="text-3xl sm:text-5xl font-black mt-2">{storeName}</h1>
+      <section className="px-4 pt-6">
+        <div className="max-w-7xl mx-auto rounded-[2.55rem] overflow-hidden border shadow-[0_35px_100px_-44px_rgba(2,6,23,0.85)]" style={{ borderColor: '#182237', backgroundColor: '#020817', color: 'white' }}>
+          <div className="grid grid-cols-1 lg:grid-cols-[0.95fr_1.05fr]">
+            <div className="relative overflow-hidden px-6 py-7 sm:px-8 sm:py-9 lg:px-10 lg:py-10" style={{ background: 'linear-gradient(135deg, #050d1f 0%, #0f172a 55%, #07111f 100%)' }}>
+              <div className="absolute left-0 top-0 h-px w-full bg-gradient-to-r from-transparent via-cyan-300 to-transparent opacity-60" />
+              <div className="absolute -left-14 top-14 h-44 w-44 rounded-full blur-3xl opacity-25" style={{ backgroundColor: '#38bdf8' }} />
+              <div className="absolute right-0 bottom-0 h-56 w-56 rounded-full blur-3xl opacity-20" style={{ backgroundColor: '#8b5cf6' }} />
+              <div className="relative z-10">
+                <div className="flex items-center gap-4">
+                  <StoreLogo logoUrl={payload.store.logoUrl} storeName={storeName} color={config.theme.primary} />
+                  <div>
+                    <p className="text-[11px] uppercase font-black tracking-[0.36em] text-cyan-300">{config.labels.heroBadge}</p>
+                    <h1 className="mt-3 text-3xl sm:text-4xl font-black">{storeName}</h1>
+                  </div>
+                </div>
+                <h2 className="mt-8 max-w-xl text-4xl sm:text-5xl lg:text-6xl font-black leading-[0.98]">{heroTitle}</h2>
+                <p className="mt-4 max-w-xl text-base leading-relaxed text-slate-300">{heroSubtitle}</p>
+                <div className="mt-7 grid gap-3 sm:grid-cols-3">
+                  {summaryCards.map(({ icon: Icon, text }) => (
+                    <div key={text} className="rounded-[1.5rem] border px-4 py-4 backdrop-blur-sm" style={{ borderColor: 'rgba(255,255,255,0.1)', backgroundColor: 'rgba(8,15,30,0.56)' }}>
+                      <Icon className="w-5 h-5 text-cyan-300" />
+                      <p className="mt-3 text-sm font-bold text-white/92">{text}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-7 rounded-[1.75rem] border p-5" style={{ borderColor: 'rgba(255,255,255,0.12)', backgroundColor: 'rgba(8,15,30,0.56)' }}>
+                  <p className="text-[11px] uppercase font-black tracking-[0.32em] text-cyan-300">Produto em evidência</p>
+                  <div className="mt-3 flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="font-black text-lg line-clamp-2">{leadProduct?.nome || storeName}</p>
+                      <p className="mt-1 text-sm text-slate-300">{leadProduct ? `Código ${leadProduct.codigo}` : 'Confira o destaque que abriu a seleção da semana.'}</p>
+                    </div>
+                    {leadProduct && <p className="text-xl font-black text-cyan-300">{money(leadProduct.preco)}</p>}
+                  </div>
                 </div>
               </div>
-              {hasText(config.labels.heroTitle) && <h2 className="mt-8 text-3xl sm:text-5xl font-black max-w-3xl leading-tight">{config.labels.heroTitle}</h2>}
-              {hasText(config.labels.heroSubtitle) && <p className="mt-4 max-w-2xl text-white/80">{config.labels.heroSubtitle}</p>}
-              <div className="mt-7 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {summaryCards.map(({ icon: Icon, text }) => (
-                  <div key={text} className="rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-4">
-                    <Icon className="w-5 h-5 text-cyan-300" />
-                    <p className="mt-2 text-sm font-bold">{text}</p>
-                  </div>
-                ))}
-              </div>
             </div>
-            <div className="p-6 border-l border-white/10 bg-slate-950/80">
-              <p className="text-[10px] uppercase tracking-[0.3em] text-cyan-300 font-black">Launch radar</p>
-              <div className="mt-4 space-y-4">
-                {products.slice(0, 3).map((product) => (
-                  <div key={product.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <p className="text-[10px] uppercase font-black text-cyan-300">{product.primaryCategory}</p>
-                    <h3 className="mt-2 font-black text-lg line-clamp-2">{product.nome}</h3>
-                    <div className="mt-4 flex items-center justify-between">
-                      <span className="text-xl font-black">{money(product.preco)}</span>
-                      <span className="rounded-full bg-cyan-400/10 px-3 py-1 text-[10px] font-black text-cyan-200">Código {product.codigo}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+            <div className="p-4 sm:p-5 lg:p-6" style={{ background: 'linear-gradient(145deg, rgba(2,8,23,1) 0%, rgba(15,23,42,0.96) 100%)' }}>
+              <HeroMediaPanel layout={layout} config={config} bannerStyle={bannerStyle} bannerUrl={payload.store.bannerUrl} storeName={storeName} products={products} />
             </div>
           </div>
         </div>
@@ -749,31 +1036,137 @@ function HeroSection({
 
   if (layout === 'services') {
     return (
-      <section className="px-4 pt-5">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-5">
-          <div className="rounded-[2rem] overflow-hidden border shadow-xl" style={{ borderColor: config.theme.border }}>
-            <div className="p-8 text-white" style={bannerStyle}>
-              <StoreLogo logoUrl={payload.store.logoUrl} storeName={storeName} color={config.theme.primary} />
-              <span className="mt-6 inline-flex rounded-full bg-white/15 px-3 py-1 text-[11px] font-black uppercase">{config.labels.heroBadge}</span>
-              <h1 className="mt-4 text-4xl sm:text-5xl font-black leading-tight">{hasText(config.labels.heroTitle) ? config.labels.heroTitle : storeName}</h1>
-              {hasText(config.labels.heroSubtitle) && <p className="mt-4 max-w-2xl text-white/85">{config.labels.heroSubtitle}</p>}
+      <section className="px-4 pt-6">
+        <div className="max-w-7xl mx-auto grid grid-cols-1 xl:grid-cols-[0.96fr_1.04fr] gap-4">
+          <div className="relative overflow-hidden rounded-[2.35rem] border bg-white p-7 sm:p-8 lg:p-10 shadow-[0_30px_85px_-44px_rgba(15,23,42,0.42)]" style={{ borderColor: config.theme.border }}>
+            <div className="absolute -right-12 top-0 h-48 w-48 rounded-full blur-3xl opacity-20" style={{ backgroundColor: config.theme.primary }} />
+            <div className="absolute left-0 bottom-0 h-44 w-44 rounded-full blur-3xl opacity-15" style={{ backgroundColor: config.theme.secondary }} />
+            <div className="relative z-10">
+              <div className="flex items-start gap-4">
+                <StoreLogo logoUrl={payload.store.logoUrl} storeName={storeName} color={config.theme.primary} />
+                <div>
+                  <span className="inline-flex rounded-full px-3 py-1 text-[11px] font-black uppercase text-white" style={{ backgroundColor: config.theme.primary }}>{config.labels.heroBadge}</span>
+                  <p className="mt-3 text-[11px] font-black uppercase tracking-[0.34em]" style={{ color: config.theme.primary }}>Soluções em destaque</p>
+                </div>
+              </div>
+              <h1 className="mt-8 max-w-xl text-4xl sm:text-5xl font-black leading-tight" style={{ color: '#172554' }}>{heroTitle}</h1>
+              <p className="mt-4 max-w-xl text-base leading-relaxed" style={{ color: '#475569' }}>{heroSubtitle}</p>
+              <div className="mt-6 flex flex-wrap gap-2">
+                {summaryCards.map(({ icon: Icon, text }) => (
+                  <HeroInfoPill key={text} icon={Icon} text={text} />
+                ))}
+              </div>
+              <div className="mt-8 space-y-3">
+                {[
+                  'Escolha a solução ideal para sua necessidade.',
+                  'Envie o contexto pelo WhatsApp em poucos toques.',
+                  'Receba retorno com mais clareza e rapidez.',
+                ].map((step, index) => (
+                  <div key={step} className="flex items-start gap-3 rounded-[1.5rem] border bg-white/88 p-4" style={{ borderColor: config.theme.border }}>
+                    <div className="w-9 h-9 rounded-2xl text-white flex items-center justify-center font-black shrink-0" style={{ backgroundColor: index === 1 ? config.theme.secondary : config.theme.primary }}>
+                      {index + 1}
+                    </div>
+                    <p className="font-bold text-sm leading-relaxed" style={{ color: '#334155' }}>{step}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-          <div className="rounded-[2rem] border bg-white p-6 shadow-xl" style={{ borderColor: config.theme.border }}>
-            <p className="text-[10px] uppercase tracking-[0.3em] font-black" style={{ color: config.theme.primary }}>Etapas do atendimento</p>
-            <div className="mt-4 space-y-3">
-              {[
-                'Escolha o serviço ou pacote',
-                'Envie sua solicitação com contexto',
-                'Receba retorno humano no WhatsApp',
-              ].map((step, index) => (
-                <div key={step} className="flex gap-3 rounded-2xl border p-3" style={{ borderColor: config.theme.border, backgroundColor: config.theme.card }}>
-                  <div className="w-8 h-8 rounded-full text-white flex items-center justify-center font-black shrink-0" style={{ backgroundColor: config.theme.primary }}>{index + 1}</div>
-                  <p className="font-bold text-sm">{step}</p>
+          <div className="p-4 sm:p-5 lg:p-6 rounded-[2.35rem] border shadow-[0_30px_85px_-44px_rgba(15,23,42,0.42)]" style={{ borderColor: config.theme.border, background: 'linear-gradient(145deg, rgba(255,255,255,0.84) 0%, rgba(224,231,255,0.92) 100%)' }}>
+            <HeroMediaPanel layout={layout} config={config} bannerStyle={bannerStyle} bannerUrl={payload.store.bannerUrl} storeName={storeName} products={products} />
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (layout === 'beauty') {
+    return (
+      <section className="px-4 pt-6">
+        <div className="max-w-7xl mx-auto overflow-hidden rounded-[2.55rem] border bg-white shadow-[0_36px_95px_-44px_rgba(15,23,42,0.4)]" style={{ borderColor: config.theme.border }}>
+          <div className="grid grid-cols-1 lg:grid-cols-[0.92fr_1.08fr]">
+            <div className="relative overflow-hidden px-6 py-7 sm:px-8 sm:py-9 lg:px-10 lg:py-10" style={{ background: 'linear-gradient(135deg, #fff7fb 0%, #fffbfd 52%, #f3e8ff 100%)' }}>
+              <div className="absolute left-10 top-10 h-32 w-32 rounded-full border opacity-30" style={{ borderColor: config.theme.secondary }} />
+              <div className="absolute right-0 bottom-0 h-52 w-52 rounded-full blur-3xl opacity-20" style={{ backgroundColor: config.theme.secondary }} />
+              <div className="relative z-10">
+                <div className="flex items-start gap-4">
+                  <StoreLogo logoUrl={payload.store.logoUrl} storeName={storeName} color={config.theme.primary} />
+                  <div>
+                    <span className="inline-flex rounded-full px-3 py-1 text-[11px] font-black uppercase text-white" style={{ backgroundColor: config.theme.primary }}>{config.labels.heroBadge}</span>
+                    <p className="mt-3 text-[11px] font-black uppercase tracking-[0.35em]" style={{ color: config.theme.secondary }}>Curadoria delicada</p>
+                  </div>
                 </div>
-              ))}
+                <h1 className="mt-8 max-w-xl text-4xl sm:text-5xl lg:text-6xl font-black leading-[0.96]" style={{ color: '#581c87' }}>{heroTitle}</h1>
+                <p className="mt-4 max-w-xl text-base sm:text-lg leading-relaxed" style={{ color: '#7c3f75' }}>{heroSubtitle}</p>
+                <div className="mt-6 flex flex-wrap gap-2">
+                  {summaryCards.map(({ icon: Icon, text }) => (
+                    <HeroInfoPill key={text} icon={Icon} text={text} />
+                  ))}
+                </div>
+                <div className="mt-8 rounded-[1.75rem] border bg-white/88 p-5" style={{ borderColor: config.theme.border }}>
+                  <p className="text-[11px] font-black uppercase tracking-[0.32em]" style={{ color: config.theme.secondary }}>Categorias em destaque</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {(heroCategories.length ? heroCategories : ['Lançamentos', 'Kits', 'Favoritos']).map((label) => (
+                      <span key={label} className="rounded-full px-3 py-1.5 text-xs font-black text-white" style={{ backgroundColor: label === heroCategories[1] ? config.theme.secondary : config.theme.primary }}>
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
-            <p className="mt-4 text-sm font-bold" style={{ color: config.theme.muted }}>{config.labels.minOrderText}</p>
+            <div className="p-4 sm:p-5 lg:p-6" style={{ background: 'linear-gradient(145deg, rgba(255,255,255,0.92) 0%, rgba(255,214,236,0.52) 100%)' }}>
+              <HeroMediaPanel layout={layout} config={config} bannerStyle={bannerStyle} bannerUrl={payload.store.bannerUrl} storeName={storeName} products={products} />
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (layout === 'market') {
+    return (
+      <section className="px-4 pt-6">
+        <div className="max-w-7xl mx-auto overflow-hidden rounded-[2.45rem] border bg-white shadow-[0_34px_90px_-42px_rgba(15,23,42,0.34)]" style={{ borderColor: config.theme.border }}>
+          <div className="grid grid-cols-1 lg:grid-cols-[0.95fr_1.05fr]">
+            <div className="relative overflow-hidden px-6 py-7 sm:px-8 sm:py-9 lg:px-10 lg:py-10" style={{ background: 'linear-gradient(135deg, #f6fff8 0%, #ffffff 52%, #effcf3 100%)' }}>
+              <div className="absolute left-0 top-0 h-full w-1.5 rounded-r-full" style={{ backgroundColor: config.theme.primary }} />
+              <div className="absolute right-0 top-8 h-44 w-44 rounded-full blur-3xl opacity-15" style={{ backgroundColor: config.theme.primary }} />
+              <div className="relative z-10">
+                <div className="flex items-start gap-4">
+                  <StoreLogo logoUrl={payload.store.logoUrl} storeName={storeName} color={config.theme.primary} />
+                  <div>
+                    <span className="inline-flex rounded-full px-3 py-1 text-[11px] font-black uppercase text-white" style={{ backgroundColor: config.theme.primary }}>{config.labels.heroBadge}</span>
+                    <p className="mt-3 text-[11px] font-black uppercase tracking-[0.35em]" style={{ color: config.theme.primary }}>Busca simples e compra rápida</p>
+                  </div>
+                </div>
+                <h1 className="mt-8 max-w-xl text-4xl sm:text-5xl font-black leading-tight" style={{ color: '#14532d' }}>{heroTitle}</h1>
+                <p className="mt-4 max-w-xl text-base leading-relaxed" style={{ color: '#365314' }}>{heroSubtitle}</p>
+                <div className="mt-6 flex flex-wrap gap-2">
+                  {summaryCards.map(({ icon: Icon, text }) => (
+                    <HeroInfoPill key={text} icon={Icon} text={text} />
+                  ))}
+                </div>
+                <div className="mt-8 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-[1.7rem] border bg-white/92 p-5" style={{ borderColor: config.theme.border }}>
+                    <p className="text-[11px] font-black uppercase tracking-[0.3em]" style={{ color: config.theme.primary }}>Oferta de abertura</p>
+                    <h3 className="mt-3 text-xl font-black" style={{ color: '#14532d' }}>{leadProduct?.nome || storeName}</h3>
+                    <p className="mt-2 text-sm" style={{ color: '#365314' }}>{leadProduct ? `Destaque visível por ${money(leadProduct.preco)}.` : 'Comece pelos itens mais procurados da loja.'}</p>
+                  </div>
+                  <div className="rounded-[1.7rem] border p-5" style={{ borderColor: config.theme.border, backgroundColor: 'rgba(255,255,255,0.74)' }}>
+                    <p className="text-[11px] font-black uppercase tracking-[0.3em]" style={{ color: config.theme.secondary }}>Corredores em foco</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {(heroCategories.length ? heroCategories : ['Ofertas', 'Mais vendidos']).map((label) => (
+                        <span key={label} className="rounded-full border px-3 py-1.5 text-xs font-black" style={{ borderColor: config.theme.border, color: '#14532d', backgroundColor: 'white' }}>{label}</span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="p-4 sm:p-5 lg:p-6" style={{ background: 'linear-gradient(145deg, rgba(255,255,255,0.82) 0%, rgba(220,252,231,0.8) 100%)' }}>
+              <HeroMediaPanel layout={layout} config={config} bannerStyle={bannerStyle} bannerUrl={payload.store.bannerUrl} storeName={storeName} products={products} />
+            </div>
           </div>
         </div>
       </section>
@@ -781,35 +1174,54 @@ function HeroSection({
   }
 
   return (
-    <section className="px-4 pt-5">
-      <div className="max-w-7xl mx-auto rounded-[2rem] overflow-hidden border shadow-xl bg-white" style={{ borderColor: config.theme.border }}>
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px]">
-          <div className="p-8 text-white" style={bannerStyle}>
-            <StoreLogo logoUrl={payload.store.logoUrl} storeName={storeName} color={config.theme.primary} />
-            <span className="mt-6 inline-flex rounded-full bg-white/15 px-3 py-1 text-[11px] font-black uppercase">{config.labels.heroBadge}</span>
-            <h1 className="mt-4 text-4xl sm:text-5xl font-black leading-tight">{hasText(config.labels.heroTitle) ? config.labels.heroTitle : storeName}</h1>
-            {hasText(config.labels.heroSubtitle) && <p className="mt-4 max-w-2xl text-white/85">{config.labels.heroSubtitle}</p>}
-            <div className="mt-6 flex flex-wrap gap-3">
-              {summaryCards.map(({ icon: Icon, text }) => (
-                <span key={text} className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-2 text-xs font-bold">
-                  <Icon className="w-4 h-4" />
-                  {text}
-                </span>
-              ))}
+    <section className="px-4 pt-6">
+      <div className="max-w-7xl mx-auto overflow-hidden rounded-[2.45rem] border bg-white shadow-[0_34px_90px_-42px_rgba(15,23,42,0.38)]" style={{ borderColor: config.theme.border }}>
+        <div className="grid grid-cols-1 lg:grid-cols-[0.94fr_1.06fr]">
+          <div className="relative overflow-hidden px-6 py-7 sm:px-8 sm:py-9 lg:px-10 lg:py-10" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #faf8ff 52%, #f1f5ff 100%)' }}>
+            <div className="absolute -left-10 top-0 h-44 w-44 rounded-full blur-3xl opacity-15" style={{ backgroundColor: config.theme.primary }} />
+            <div className="absolute right-0 bottom-0 h-56 w-56 rounded-full blur-3xl opacity-20" style={{ backgroundColor: config.theme.secondary }} />
+            <div className="relative z-10">
+              <div className="flex items-start gap-4">
+                <StoreLogo logoUrl={payload.store.logoUrl} storeName={storeName} color={config.theme.primary} />
+                <div>
+                  <span className="inline-flex rounded-full px-3 py-1 text-[11px] font-black uppercase text-white" style={{ backgroundColor: config.theme.primary }}>{config.labels.heroBadge}</span>
+                  <p className="mt-3 text-[11px] font-black uppercase tracking-[0.35em]" style={{ color: config.theme.primary }}>
+                    Lançamentos e favoritos
+                  </p>
+                </div>
+              </div>
+              <h1 className="mt-8 max-w-xl text-4xl sm:text-5xl lg:text-6xl font-black leading-[0.96]" style={{ color: '#1e1b4b' }}>
+                {heroTitle}
+              </h1>
+              <p className="mt-4 max-w-xl text-base sm:text-lg leading-relaxed" style={{ color: '#475569' }}>
+                {heroSubtitle}
+              </p>
+              <div className="mt-6 flex flex-wrap gap-2">
+                {summaryCards.map(({ icon: Icon, text }) => (
+                  <HeroInfoPill key={text} icon={Icon} text={text} />
+                ))}
+              </div>
+              <div className="mt-8 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-[1.7rem] border bg-white/92 p-5" style={{ borderColor: config.theme.border }}>
+                  <p className="text-[11px] font-black uppercase tracking-[0.3em]" style={{ color: config.theme.primary }}>Produto principal</p>
+                  <h3 className="mt-3 text-xl font-black" style={{ color: '#1e1b4b' }}>{leadProduct?.nome || storeName}</h3>
+                  <p className="mt-2 text-sm" style={{ color: '#475569' }}>{leadProduct ? `Destaque inicial por ${money(leadProduct.preco)}.` : 'Seleção pensada para começar sua navegação com os queridinhos da vitrine.'}</p>
+                </div>
+                <div className="rounded-[1.7rem] border p-5" style={{ borderColor: config.theme.border, backgroundColor: 'rgba(255,255,255,0.76)' }}>
+                  <p className="text-[11px] font-black uppercase tracking-[0.3em]" style={{ color: config.theme.secondary }}>Linhas em destaque</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {(heroCategories.length ? heroCategories : ['Destaques', 'Novidades']).map((label) => (
+                      <span key={label} className="rounded-full border px-3 py-1.5 text-xs font-black" style={{ borderColor: config.theme.border, color: '#312e81', backgroundColor: '#ffffff' }}>
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-          <div className="p-6" style={{ backgroundColor: config.theme.card }}>
-            {hasText(config.labels.featuredTitle) && <p className="text-[10px] uppercase tracking-[0.3em] font-black" style={{ color: config.theme.primary }}>{config.labels.featuredTitle}</p>}
-            {hasText(config.labels.featuredSubtitle) && <p className="mt-2 text-sm" style={{ color: config.theme.muted }}>{config.labels.featuredSubtitle}</p>}
-            <div className="mt-5 grid grid-cols-1 gap-3">
-              {products.slice(0, 3).map((product) => (
-                <div key={product.id} className="rounded-2xl border bg-white p-4" style={{ borderColor: config.theme.border }}>
-                  <p className="text-[10px] uppercase font-black tracking-wider" style={{ color: config.theme.primary }}>{product.primaryCategory}</p>
-                  <h3 className="mt-2 font-black line-clamp-2">{product.nome}</h3>
-                  <p className="mt-3 text-lg font-black" style={{ color: config.theme.secondary }}>{money(product.preco)}</p>
-                </div>
-              ))}
-            </div>
+          <div className="p-4 sm:p-5 lg:p-6" style={{ background: 'linear-gradient(145deg, rgba(255,255,255,0.84) 0%, rgba(224,231,255,0.78) 100%)' }}>
+            <HeroMediaPanel layout={layout} config={config} bannerStyle={bannerStyle} bannerUrl={payload.store.bannerUrl} storeName={storeName} products={products} />
           </div>
         </div>
       </div>

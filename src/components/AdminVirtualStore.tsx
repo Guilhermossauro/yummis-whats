@@ -101,7 +101,7 @@ export default function AdminVirtualStore({
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [leftTab, setLeftTab] = useState<LeftTab>('sections');
   const [canvasPage, setCanvasPage] = useState<StorefrontEditorPageId>('home');
-  const [selectedElementId, setSelectedElementId] = useState<string | null>('hero');
+  const [selectedElementId, setSelectedElementId] = useState<string | null>('categories');
   const [deviceMode, setDeviceMode] = useState<DeviceMode>('desktop');
   const [draggingCategoryIndex, setDraggingCategoryIndex] = useState<number | null>(null);
 
