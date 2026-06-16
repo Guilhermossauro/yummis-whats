@@ -37,9 +37,112 @@ export interface GatewayUser {
   storeBannerUrl?: string | null;
   storeLogoUrl?: string | null;
   storeLayout?: StoreLayoutType | null;
+  storefrontConfig?: StorefrontConfig | null;
 }
 
 export type StoreLayoutType = 'restaurant' | 'ecommerce' | 'fashion' | 'market' | 'beauty' | 'electronics' | 'services';
+export type ProductSortMode = 'featured' | 'newest' | 'name_asc' | 'price_asc' | 'price_desc' | 'stock_desc';
+export type StorefrontSectionId = 'hero' | 'categories' | 'filters' | 'featured' | 'products' | 'about' | 'benefits' | 'footer';
+export type StorefrontEditorPageId = 'home' | 'product' | 'cart';
+export type StorefrontProductElementId = 'detail_breadcrumb' | 'detail_showcase' | 'detail_specs' | 'detail_actions' | 'detail_trust';
+export type StorefrontCartElementId = 'cart_header' | 'cart_empty' | 'cart_items' | 'cart_summary';
+
+export interface StorefrontTheme {
+  primary: string;
+  secondary: string;
+  accent: string;
+  background: string;
+  surface: string;
+  card: string;
+  text: string;
+  muted: string;
+  border: string;
+  topbar: string;
+}
+
+export interface StorefrontLabels {
+  topTitle: string;
+  heroBadge: string;
+  heroTitle: string;
+  heroSubtitle: string;
+  searchPlaceholder: string;
+  minOrderText: string;
+  deliveryText: string;
+  contactText: string;
+  featuredTitle: string;
+  featuredSubtitle: string;
+  homeTitle: string;
+  homeSubtitle: string;
+  offerLabel: string;
+  priceSupport: string;
+  cartTitle: string;
+  cartSubtitle: string;
+  emptyCartTitle: string;
+  emptyCartText: string;
+  continueText: string;
+  checkoutText: string;
+  addCartText: string;
+  buyNowText: string;
+  detailBackText: string;
+  detailInfoTitle: string;
+  detailShippingLabel: string;
+  detailShippingText: string;
+  detailAvailabilityLabel: string;
+  detailDescriptionLabel: string;
+  aboutTitle: string;
+  aboutText: string;
+  benefitsTitle: string;
+  benefitsText: string;
+  footerNote: string;
+}
+
+export interface StorefrontSection {
+  id: StorefrontSectionId;
+  title: string;
+  subtitle: string;
+  enabled: boolean;
+}
+
+export interface StorefrontCategorySetting {
+  name: string;
+  label: string;
+  visible: boolean;
+  featured: boolean;
+  order: number;
+}
+
+export interface StorefrontPageElement<TElementId extends string = string> {
+  id: TElementId;
+  title: string;
+  subtitle: string;
+  enabled: boolean;
+  order: number;
+}
+
+export interface StorefrontLayoutSettings {
+  productSort: ProductSortMode;
+  categoryMenuStyle: 'tabs' | 'pills' | 'sidebar';
+  productCardStyle: 'grid' | 'list' | 'mosaic' | 'compact';
+  showSearch: boolean;
+  showFilters: boolean;
+  showFeaturedStrip: boolean;
+  showAbout: boolean;
+  showBenefits: boolean;
+  showRatings: boolean;
+  showStock: boolean;
+}
+
+export interface StorefrontConfig {
+  theme: StorefrontTheme;
+  labels: StorefrontLabels;
+  sections: StorefrontSection[];
+  categorySettings: StorefrontCategorySetting[];
+  layoutSettings: StorefrontLayoutSettings;
+  highlightCodes: string[];
+  hiddenProductCodes: string[];
+  productPageElements: StorefrontPageElement<StorefrontProductElementId>[];
+  cartPageElements: StorefrontPageElement<StorefrontCartElementId>[];
+}
 
 export interface SQLProduct {
   id: string; // kept as string for react compatibility, mapped from integer
@@ -52,6 +155,7 @@ export interface SQLProduct {
   has_shipping?: boolean;
   shipping_type?: 'free' | 'paid';
   shipping_cost?: number;
+  categories?: string[];
 }
 
 // Canal de origem de uma conversa/mensagem vinda do gateway

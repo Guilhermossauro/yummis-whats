@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { 
   Bot, 
   Trash2, 
@@ -67,11 +67,53 @@ export default function BotFlowBuilder() {
     return DEFAULT_NODE_POSITIONS;
   });
 
+  const savePositionsTimeoutRef = useRef<number | null>(null);
+  const dragFrameRef = useRef<number | null>(null);
+  const pendingDragRef = useRef<{ id: string; x: number; y: number } | null>(null);
+
   useEffect(() => {
-    localStorage.setItem('sql_flow_positions', JSON.stringify(nodePositions));
+    if (savePositionsTimeoutRef.current !== null) {
+      window.clearTimeout(savePositionsTimeoutRef.current);
+    }
+    savePositionsTimeoutRef.current = window.setTimeout(() => {
+      localStorage.setItem('sql_flow_positions', JSON.stringify(nodePositions));
+      savePositionsTimeoutRef.current = null;
+    }, 180);
+
+    return () => {
+      if (savePositionsTimeoutRef.current !== null) {
+        window.clearTimeout(savePositionsTimeoutRef.current);
+        savePositionsTimeoutRef.current = null;
+      }
+    };
   }, [nodePositions]);
 
   const [draggingNode, setDraggingNode] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null);
+  const blockMap = useMemo(() => new Map(blocks.map(block => [block.id, block])), [blocks]);
+
+  const updateNodePosition = (id: string, x: number, y: number) => {
+    setNodePositions(prev => {
+      const current = prev[id];
+      if (current?.x === x && current?.y === y) return prev;
+      return {
+        ...prev,
+        [id]: { x, y }
+      };
+    });
+  };
+
+  const scheduleNodePositionUpdate = (id: string, x: number, y: number) => {
+    pendingDragRef.current = { id, x, y };
+    if (dragFrameRef.current !== null) return;
+
+    dragFrameRef.current = window.requestAnimationFrame(() => {
+      dragFrameRef.current = null;
+      const next = pendingDragRef.current;
+      pendingDragRef.current = null;
+      if (!next) return;
+      updateNodePosition(next.id, next.x, next.y);
+    });
+  };
 
   const handleCanvasMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!draggingNode) return;
@@ -80,15 +122,32 @@ export default function BotFlowBuilder() {
     const yLimit = isFullscreen ? 760 : 560;
     const x = Math.max(10, Math.min(e.clientX - rect.left - draggingNode.offsetX, xLimit));
     const y = Math.max(10, Math.min(e.clientY - rect.top - draggingNode.offsetY, yLimit));
-    setNodePositions(prev => ({
-      ...prev,
-      [draggingNode.id]: { x, y }
-    }));
+    scheduleNodePositionUpdate(draggingNode.id, x, y);
   };
 
   const handleCanvasMouseUp = () => {
+    if (dragFrameRef.current !== null) {
+      window.cancelAnimationFrame(dragFrameRef.current);
+      dragFrameRef.current = null;
+    }
+    if (pendingDragRef.current) {
+      const next = pendingDragRef.current;
+      pendingDragRef.current = null;
+      updateNodePosition(next.id, next.x, next.y);
+    }
     setDraggingNode(null);
   };
+
+  useEffect(() => {
+    return () => {
+      if (dragFrameRef.current !== null) {
+        window.cancelAnimationFrame(dragFrameRef.current);
+      }
+      if (savePositionsTimeoutRef.current !== null) {
+        window.clearTimeout(savePositionsTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Persist flow to localstorage on changes
   useEffect(() => {
@@ -758,7 +817,7 @@ export default function BotFlowBuilder() {
                   key={block.id}
                   style={{ left: `${pos.x}px`, top: `${pos.y}px` }}
                   onMouseDown={(e) => {
-                    // Start dragging node
+                    e.preventDefault();
                     e.stopPropagation();
                     const rect = e.currentTarget.parentElement?.getBoundingClientRect();
                     if (rect) {
@@ -805,7 +864,7 @@ export default function BotFlowBuilder() {
                   {block.type === 'options' && block.options.length > 0 && (
                     <div className="mt-2 space-y-0.5 pt-1.5 border-t border-white/5 text-[7px] text-slate-500 font-mono">
                       {block.options.slice(0, 2).map((opt, oIdx) => {
-                        const targetBlock = blocks.find(b => b.id === opt.destinationBlockId);
+                        const targetBlock = blockMap.get(opt.destinationBlockId);
                         return (
                           <div key={oIdx} className="flex items-center justify-between">
                             <span className="truncate max-w-[85px] text-slate-400">

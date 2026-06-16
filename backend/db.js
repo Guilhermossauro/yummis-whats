@@ -49,10 +49,12 @@ ensureColumn('gateway_users', 'store_name', 'store_name VARCHAR(150)');         
 ensureColumn('gateway_users', 'store_banner_url', 'store_banner_url TEXT');        // banner público da vitrine
 ensureColumn('gateway_users', 'store_logo_url', 'store_logo_url TEXT');            // logo pública da vitrine
 ensureColumn('products', 'owner_id', "owner_id VARCHAR(64) DEFAULT 'user_1'");     // loja dona do catálogo
+ensureColumn('products', 'categories', "categories TEXT DEFAULT '[]'");
 ensureColumn('products', 'has_shipping', 'has_shipping INTEGER DEFAULT 0');
 ensureColumn('products', 'shipping_type', "shipping_type VARCHAR(20) DEFAULT 'paid'");
 ensureColumn('products', 'shipping_cost', 'shipping_cost DECIMAL(10, 2) DEFAULT 0');
 ensureColumn('gateway_users', 'store_layout', "store_layout VARCHAR(40) DEFAULT 'ecommerce'");
+ensureColumn('gateway_users', 'storefront_config', "storefront_config TEXT DEFAULT '{}'");
 
 function migrateLeadsOwnership() {
   const indexes = db.prepare("PRAGMA index_list('leads')").all();
@@ -120,6 +122,7 @@ function migrateProductsOwnership() {
         descricao TEXT NULL,
         preco DECIMAL(10, 2) NOT NULL,
         foto_path VARCHAR(255) NULL,
+        categories TEXT DEFAULT '[]',
         estoque INTEGER DEFAULT 0,
         has_shipping INTEGER DEFAULT 0,
         shipping_type VARCHAR(20) DEFAULT 'paid',
@@ -127,8 +130,8 @@ function migrateProductsOwnership() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
       INSERT OR IGNORE INTO products_new
-        (id, owner_id, codigo, nome, descricao, preco, foto_path, estoque, has_shipping, shipping_type, shipping_cost, created_at)
-      SELECT id, COALESCE(owner_id, 'user_1'), codigo, nome, descricao, preco, foto_path, estoque,
+        (id, owner_id, codigo, nome, descricao, preco, foto_path, categories, estoque, has_shipping, shipping_type, shipping_cost, created_at)
+      SELECT id, COALESCE(owner_id, 'user_1'), codigo, nome, descricao, preco, foto_path, COALESCE(categories, '[]'), estoque,
              COALESCE(has_shipping, 0), COALESCE(shipping_type, 'paid'), COALESCE(shipping_cost, 0), created_at
         FROM products;
       DROP TABLE products;
@@ -250,6 +253,7 @@ function mapUser(row) {
     storeBannerUrl: row.store_banner_url || null,
     storeLogoUrl: row.store_logo_url || null,
     storeLayout: row.store_layout || 'ecommerce',
+    storefrontConfig: safeParse(row.storefront_config),
   };
 }
 
@@ -274,9 +278,9 @@ const gateway = {
   createUser(u) {
     db.prepare(
       `INSERT INTO gateway_users
-         (id, username, password, token, tokens_count, expiration_date, created_at, status, store_name, store_banner_url, store_logo_url, store_layout)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(u.id, u.username, u.password, u.token, u.tokensCount, u.expirationDate, u.createdAt, u.status || 'active', u.storeName || null, u.storeBannerUrl || null, u.storeLogoUrl || null, u.storeLayout || 'ecommerce');
+         (id, username, password, token, tokens_count, expiration_date, created_at, status, store_name, store_banner_url, store_logo_url, store_layout, storefront_config)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(u.id, u.username, u.password, u.token, u.tokensCount, u.expirationDate, u.createdAt, u.status || 'active', u.storeName || null, u.storeBannerUrl || null, u.storeLogoUrl || null, u.storeLayout || 'ecommerce', JSON.stringify(u.storefrontConfig || {}));
     return this.getUserById(u.id);
   },
   setStatus(id, status) {
@@ -289,9 +293,9 @@ const gateway = {
     const merged = { ...current, ...fields };
     db.prepare(
       `UPDATE gateway_users
-         SET username = ?, password = ?, token = ?, tokens_count = ?, expiration_date = ?, status = ?, store_name = ?, store_banner_url = ?, store_logo_url = ?, store_layout = ?
+         SET username = ?, password = ?, token = ?, tokens_count = ?, expiration_date = ?, status = ?, store_name = ?, store_banner_url = ?, store_logo_url = ?, store_layout = ?, storefront_config = ?
        WHERE id = ?`
-    ).run(merged.username, merged.password, merged.token, merged.tokensCount, merged.expirationDate, merged.status, merged.storeName, merged.storeBannerUrl, merged.storeLogoUrl, merged.storeLayout || 'ecommerce', id);
+    ).run(merged.username, merged.password, merged.token, merged.tokensCount, merged.expirationDate, merged.status, merged.storeName, merged.storeBannerUrl, merged.storeLogoUrl, merged.storeLayout || 'ecommerce', JSON.stringify(merged.storefrontConfig || {}), id);
     return this.getUserById(id);
   },
   deleteUser(id) {

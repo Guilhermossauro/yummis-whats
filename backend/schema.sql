@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS products (
     descricao TEXT NULL,
     preco DECIMAL(10, 2) NOT NULL,
     foto_path VARCHAR(255) NULL,
+    categories TEXT DEFAULT '[]',
     estoque INTEGER DEFAULT 0,
     has_shipping INTEGER DEFAULT 0,
     shipping_type VARCHAR(20) DEFAULT 'paid',
@@ -123,6 +124,7 @@ CREATE TABLE IF NOT EXISTS gateway_users (
     store_banner_url TEXT,
     store_logo_url TEXT,
     store_layout VARCHAR(40) DEFAULT 'ecommerce',
+    storefront_config TEXT DEFAULT '{}',
     created_at VARCHAR(40)
 );
 

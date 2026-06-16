@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import { Settings, User, Key, KeyRound, Wifi, Database, Check, Phone, ShieldCheck, Mail, Bot, Plus, Trash2, Edit3, Users, X } from 'lucide-react';
-import { WhatsAppConfig, SQLEmployee, SQLSeller, StoreLayoutType } from '../types';
+import { WhatsAppConfig, SQLEmployee, SQLSeller } from '../types';
 import BotFlowBuilder from './BotFlowBuilder';
 import { isGatewayMode } from '../lib/gateway';
 
 interface SettingsProps {
   whatsAppConfig: WhatsAppConfig;
   onUpdateWhatsAppConfig: (config: WhatsAppConfig) => void;
-  lojista: { name: string; email: string; store_name?: string; store_banner_url?: string; store_logo_url?: string; store_layout?: StoreLayoutType } | null;
-  onUpdateProfile: (name: string, email: string, storeName?: string, storeBannerUrl?: string, storeLogoUrl?: string, storeLayout?: StoreLayoutType) => void;
+  lojista: { name: string; email: string } | null;
+  onUpdateProfile: (name: string, email: string) => void;
   onResetPassword: (password: string) => void;
   employees?: SQLEmployee[];
   employeeLimit?: number;
@@ -17,22 +17,6 @@ interface SettingsProps {
   onEditEmployee?: (id: string, updated: Partial<SQLEmployee>) => void;
   onDeleteEmployee?: (id: string) => void;
 }
-
-const STORE_LAYOUT_OPTIONS: Array<{
-  key: StoreLayoutType;
-  label: string;
-  title: string;
-  description: string;
-  accent: string;
-}> = [
-  { key: 'restaurant', label: '🍽️ Restaurante', title: 'Cardápio do restaurante', description: 'Ideal para pratos, combos, bebidas e pedidos rápidos.', accent: 'from-orange-500 to-rose-500' },
-  { key: 'ecommerce', label: '🛒 E-commerce', title: 'Catálogo de produtos', description: 'Modelo geral para lojas com muitos departamentos.', accent: 'from-indigo-500 to-violet-500' },
-  { key: 'fashion', label: '👗 Loja de modas', title: 'Coleção da loja', description: 'Vitrine para looks, acessórios, tamanhos e coleções.', accent: 'from-fuchsia-500 to-pink-500' },
-  { key: 'market', label: '🛍️ Mercado', title: 'Corredores do mercado', description: 'Perfeito para alimentos, utilidades e compras recorrentes.', accent: 'from-emerald-500 to-teal-500' },
-  { key: 'beauty', label: '✨ Beleza', title: 'Vitrine de beleza', description: 'Produtos de estética, cosméticos e autocuidado.', accent: 'from-pink-500 to-purple-500' },
-  { key: 'electronics', label: '📱 Eletrônicos', title: 'Tecnologia em destaque', description: 'Produtos técnicos, gadgets e acessórios digitais.', accent: 'from-cyan-500 to-blue-500' },
-  { key: 'services', label: '🧰 Serviços', title: 'Serviços disponíveis', description: 'Pacotes, agendas, atendimentos e orçamentos.', accent: 'from-amber-500 to-indigo-500' },
-];
 
 export default function AdminSettings({
   whatsAppConfig,
@@ -70,10 +54,6 @@ export default function AdminSettings({
   // Profile states
   const [name, setName] = useState(lojista?.name || '');
   const [email, setEmail] = useState(lojista?.email || '');
-  const [storeName, setStoreName] = useState(lojista?.store_name || '');
-  const [storeBannerUrl, setStoreBannerUrl] = useState(lojista?.store_banner_url || '');
-  const [storeLogoUrl, setStoreLogoUrl] = useState(lojista?.store_logo_url || '');
-  const [storeLayout, setStoreLayout] = useState<StoreLayoutType>(lojista?.store_layout || 'ecommerce');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
@@ -97,7 +77,7 @@ export default function AdminSettings({
       setNotif({ type: 'error', msg: 'Favor preencher nome e e-mail.' });
       return;
     }
-    onUpdateProfile(name, email, storeName, storeBannerUrl, storeLogoUrl, storeLayout);
+    onUpdateProfile(name, email);
     setNotif({ type: 'success', msg: 'Informações de perfil atualizadas com sucesso!' });
     setTimeout(() => setNotif({ type: '', msg: '' }), 3000);
   };
@@ -328,92 +308,6 @@ export default function AdminSettings({
                     />
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Nome da Loja</label>
-                    <input
-                      type="text"
-                      value={storeName}
-                      onChange={(e) => setStoreName(e.target.value)}
-                      className="w-full bg-slate-950 border border-white/5 rounded-xl py-2 px-3 text-xs text-white"
-                      placeholder="Ex: Moda Express Premium"
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-4 space-y-3">
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Layout da vitrine pública</label>
-                    <p className="text-[10px] text-slate-500 mt-1">
-                      Escolha o tipo de loja para ajustar textos, chamadas e experiência da página pública.
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-                    {STORE_LAYOUT_OPTIONS.map(option => {
-                      const selected = storeLayout === option.key;
-                      return (
-                        <button
-                          key={option.key}
-                          type="button"
-                          onClick={() => setStoreLayout(option.key)}
-                          className={`text-left rounded-2xl border p-3 transition-all cursor-pointer ${
-                            selected
-                              ? 'border-indigo-400 bg-indigo-500/15 shadow-[0_0_0_1px_rgba(129,140,248,0.35)]'
-                              : 'border-white/10 bg-slate-950/50 hover:border-white/25'
-                          }`}
-                        >
-                          <div className={`h-2 rounded-full bg-gradient-to-r ${option.accent} mb-3`} />
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-extrabold text-white">{option.label}</span>
-                            {selected && <Check className="w-4 h-4 text-indigo-300" />}
-                          </div>
-                          <p className="text-[11px] font-bold text-indigo-200 mt-2">{option.title}</p>
-                          <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">{option.description}</p>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="mt-4 space-y-2">
-                  <label className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Banner da vitrine pública</label>
-                  <input
-                    type="url"
-                    value={storeBannerUrl}
-                    onChange={(e) => setStoreBannerUrl(e.target.value)}
-                    className="w-full bg-slate-950 border border-white/5 rounded-xl py-2 px-3 text-xs text-white"
-                    placeholder="https://sua-imagem.com/banner-da-loja.jpg"
-                  />
-                  <p className="text-[10px] text-slate-500">
-                    Se estiver vazio, a vitrine usa uma faixa de cor elegante como fallback.
-                  </p>
-                  {storeBannerUrl && (
-                    <div className="h-28 rounded-2xl overflow-hidden border border-white/10 bg-slate-950">
-                      <img src={storeBannerUrl} alt="Prévia do banner da loja" className="w-full h-full object-cover" />
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-4 space-y-2">
-                  <label className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Logo da vitrine pública</label>
-                  <input
-                    type="url"
-                    value={storeLogoUrl}
-                    onChange={(e) => setStoreLogoUrl(e.target.value)}
-                    className="w-full bg-slate-950 border border-white/5 rounded-xl py-2 px-3 text-xs text-white"
-                    placeholder="https://sua-imagem.com/logo-da-loja.png"
-                  />
-                  <div className="flex items-center gap-3">
-                    <div className="w-16 h-16 rounded-full overflow-hidden border border-white/10 bg-slate-950 flex items-center justify-center text-xs font-bold text-slate-500">
-                      {storeLogoUrl ? (
-                        <img src={storeLogoUrl} alt="Prévia da logo da loja" className="w-full h-full object-cover" />
-                      ) : (
-                        'Logo'
-                      )}
-                    </div>
-                    <p className="text-[10px] text-slate-500">
-                      Aparece no topo da página inicial da loja. Se vazio, usamos as iniciais.
-                    </p>
-                  </div>
                 </div>
 
                 <div className="pt-4 mt-6 border-t border-white/5 flex">

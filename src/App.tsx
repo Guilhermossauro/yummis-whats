@@ -19,7 +19,8 @@ import {
   Moon,
   Sun,
   ChevronRight,
-  LayoutDashboard
+  LayoutDashboard,
+  Store
 } from 'lucide-react';
 
 import AdminLogin from './components/AdminLogin';
@@ -33,8 +34,9 @@ import SuperAdminPanel from './components/SuperAdminPanel';
 import AdminCustomerProfiles from './components/AdminCustomerProfiles';
 import BotFlowBuilder from './components/BotFlowBuilder';
 import PublicStorefront from './components/PublicStorefront';
+import AdminVirtualStore from './components/AdminVirtualStore';
 
-import { SQLProduct, SQLLead, SQLCart, SQLOrder, SQLMessageLog, WhatsAppConfig, SQLSeller, SQLEmployee, FlowBlock, GatewayUser, StoreLayoutType } from './types';
+import { SQLProduct, SQLLead, SQLCart, SQLOrder, SQLMessageLog, WhatsAppConfig, SQLSeller, SQLEmployee, FlowBlock, GatewayUser, StoreLayoutType, StorefrontConfig } from './types';
 import { getSendMessageURL, getGatewayBaseURL, isGatewayMode } from './lib/gateway';
 import { processBotMessage, BotProduct, BotState } from './lib/botProcessor';
 import DashboardHome from './components/DashboardHome';
@@ -48,6 +50,7 @@ type SessionUser = {
   store_banner_url?: string;
   store_logo_url?: string;
   store_layout?: StoreLayoutType;
+  storefront_config?: StorefrontConfig | null;
   token?: string;
   status?: string;
 };
@@ -61,10 +64,9 @@ const storeSlug = (value?: string) => String(value || '')
   .replace(/^_+|_+$/g, '');
 
 export default function App() {
-  const publicStoreMatch = window.location.pathname.match(/^\/store\/([^/?#]+)/);
-  if (publicStoreMatch) {
-    return <PublicStorefront slug={decodeURIComponent(publicStoreMatch[1])} />;
-  }
+  const [pathname, setPathname] = useState(() => window.location.pathname);
+  const publicStoreMatch = pathname.match(/^\/store\/([^/?#]+)/);
+  const storeEditorMatch = pathname.match(/^\/editor\/loja(?:\/([^/?#]+))?/);
   
   // 1. Session state
   const [lojistaUser, setLojistaUser] = useState<SessionUser | null>(() => {
@@ -73,13 +75,24 @@ export default function App() {
   });
 
   // 2. Tab selection
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'crm' | 'catalog' | 'chat' | 'simulator' | 'settings' | 'sqlite' | 'customer_profiles' | 'flow'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'crm' | 'catalog' | 'storefront' | 'chat' | 'simulator' | 'settings' | 'sqlite' | 'customer_profiles' | 'flow'>('dashboard');
 
   // Tema (claro / escuro) — persistido e aplicado no <html>
   const [dark, setDark] = useState<boolean>(() => document.documentElement.classList.contains('dark'));
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [gatewayUsers, setGatewayUsers] = useState<GatewayUser[]>([]);
+  useEffect(() => {
+    const handlePopState = () => setPathname(window.location.pathname);
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const navigatePath = (nextPath: string) => {
+    if (window.location.pathname === nextPath) return;
+    window.history.pushState({}, '', nextPath);
+    setPathname(nextPath);
+  };
   const toggleTheme = () => {
     setDark(prev => {
       const next = !prev;
@@ -688,24 +701,60 @@ export default function App() {
     localStorage.removeItem('sql_whatsapp_config');
   };
 
-  const handleUpdateProfile = (name: string, email: string, storeName?: string, storeBannerUrl?: string, storeLogoUrl?: string, storeLayout?: StoreLayoutType) => {
+  const handleUpdateProfile = (name: string, email: string) => {
     if (lojistaUser) {
-      const updated = { ...lojistaUser, name, email, store_name: storeName, store_banner_url: storeBannerUrl, store_logo_url: storeLogoUrl, store_layout: storeLayout };
+      const updated = { ...lojistaUser, name, email };
       setLojistaUser(updated);
       localStorage.setItem('sql_lojista', JSON.stringify(updated));
-      // Also update in sellers list if it exists to keep tables in sync
-      setSellers(prev => prev.map(s => s.email.toLowerCase() === email.toLowerCase() ? { ...s, name, store_name: storeName || s.store_name } : s));
-      if (lojistaUser.token) {
-        fetch(`${getGatewayBaseURL()}/api/user/profile`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${lojistaUser.token}`,
-          },
-          body: JSON.stringify({ storeName, storeBannerUrl, storeLogoUrl, storeLayout }),
-        }).catch((err) => console.warn('[Perfil] Falha ao sincronizar banner da loja', err));
-      }
+      setSellers(prev => prev.map(s => s.email.toLowerCase() === email.toLowerCase() ? { ...s, name } : s));
     }
+  };
+
+  const handleUpdateStorefront = ({ storeBannerUrl, storeLogoUrl, storeLayout, storefrontConfig }: {
+    storeBannerUrl: string;
+    storeLogoUrl: string;
+    storeLayout: StoreLayoutType;
+    storefrontConfig: StorefrontConfig;
+  }) => {
+    if (!lojistaUser) return;
+    const optimistic = {
+      ...lojistaUser,
+      store_banner_url: storeBannerUrl,
+      store_logo_url: storeLogoUrl,
+      store_layout: storeLayout,
+      storefront_config: storefrontConfig,
+    };
+    setLojistaUser(optimistic);
+    localStorage.setItem('sql_lojista', JSON.stringify(optimistic));
+
+    if (!lojistaUser.token) return;
+
+    fetch(`${getGatewayBaseURL()}/api/user/profile`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${lojistaUser.token}`,
+      },
+      body: JSON.stringify({ storeBannerUrl, storeLogoUrl, storeLayout, storefrontConfig }),
+    })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Falha ao atualizar loja virtual.');
+        if (!data.user) return;
+        const synced = {
+          ...optimistic,
+          store_name: data.user.storeName || optimistic.store_name,
+          store_banner_url: data.user.storeBannerUrl || '',
+          store_logo_url: data.user.storeLogoUrl || '',
+          store_layout: data.user.storeLayout || storeLayout,
+          storefront_config: data.user.storefrontConfig || storefrontConfig,
+        };
+        setLojistaUser(synced);
+        localStorage.setItem('sql_lojista', JSON.stringify(synced));
+      })
+      .catch((err) => {
+        console.warn('[Loja Virtual] Falha ao sincronizar vitrine', err);
+      });
   };
 
   const refreshGatewayUsers = async () => {
@@ -723,6 +772,68 @@ export default function App() {
       refreshGatewayUsers();
     }
   }, [lojistaUser?.email]);
+
+  useEffect(() => {
+    if (!lojistaUser?.id || !lojistaUser?.token || lojistaUser.email === 'adminsuper@admin.com') return;
+
+    let cancelled = false;
+
+    const syncProfile = async () => {
+      try {
+        const res = await fetch(`${getGatewayBaseURL()}/api/user/profile/${lojistaUser.id}`);
+        if (!res.ok) return;
+        const user = await res.json();
+        if (cancelled || !user) return;
+
+        setLojistaUser(prev => {
+          if (!prev) return prev;
+          const next = {
+            ...prev,
+            name: user.storeName || prev.name,
+            email: user.username || prev.email,
+            store_name: user.storeName || prev.store_name,
+            store_banner_url: user.storeBannerUrl || '',
+            store_logo_url: user.storeLogoUrl || '',
+            store_layout: user.storeLayout || prev.store_layout,
+            storefront_config: user.storefrontConfig || prev.storefront_config,
+          };
+          localStorage.setItem('sql_lojista', JSON.stringify(next));
+          return next;
+        });
+      } catch (err) {
+        console.warn('[Sessao] Falha ao sincronizar dados da loja', err);
+      }
+    };
+
+    syncProfile();
+    const intervalId = window.setInterval(syncProfile, 30000);
+    window.addEventListener('focus', syncProfile);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', syncProfile);
+    };
+  }, [lojistaUser?.email, lojistaUser?.id, lojistaUser?.token]);
+
+  const handleUpdateGatewayStoreName = async (id: string, storeName: string) => {
+    try {
+      const res = await fetch(`${getGatewayBaseURL()}/api/admin/users/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storeName }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { success: false, error: data.error || 'Não foi possível atualizar o nome da loja.' };
+      }
+      setGatewayUsers(prev => prev.map(user => user.id === id ? data.user : user));
+      return { success: true };
+    } catch (err) {
+      console.warn('[Admin] Falha ao atualizar nome da loja', err);
+      return { success: false, error: 'Falha de conexão ao atualizar a loja.' };
+    }
+  };
 
   const handleGatewayUserStatus = async (id: string, status: 'active' | 'pending' | 'blocked') => {
     const res = await fetch(`${getGatewayBaseURL()}/api/admin/users/${id}/status`, {
@@ -1010,10 +1121,37 @@ export default function App() {
     { key: 'chat', label: 'Chat Omnichannel', icon: MessageSquare },
     { key: 'flow', label: 'Fluxo do Bot', icon: Settings },
     { key: 'catalog', label: 'Catálogo', icon: ShoppingBag },
+    { key: 'storefront', label: 'Loja Virtual', icon: Store },
     { key: 'settings', label: 'Conexões & Conta', icon: Wifi },
     { key: 'customer_profiles', label: 'Perfis de Clientes', icon: User },
   ] as const;
   const activeNav = NAV.find(n => n.key === activeTab);
+  const openStoreEditor = () => {
+    const slug = storeSlug(lojistaUser?.store_name || storeEditorMatch?.[1] || 'loja') || 'loja';
+    navigatePath(`/editor/loja/${slug}`);
+    setShowNotifications(false);
+    setShowProfileMenu(false);
+  };
+
+  if (publicStoreMatch) {
+    return <PublicStorefront slug={decodeURIComponent(publicStoreMatch[1])} />;
+  }
+
+  if (storeEditorMatch && lojistaUser && lojistaUser.email !== 'adminsuper@admin.com') {
+    return (
+      <AdminVirtualStore
+        standalone
+        lojista={lojistaUser}
+        products={products}
+        storeSlug={storeSlug(lojistaUser?.store_name || storeEditorMatch[1] || '')}
+        onUpdateStorefront={handleUpdateStorefront}
+        onBack={() => {
+          setActiveTab('dashboard');
+          navigatePath('/');
+        }}
+      />
+    );
+  }
 
   return (
     <div className="bg-[#eef1f6] dark:bg-slate-950 min-h-screen text-slate-800 dark:text-slate-100 font-sans transition-colors" id="main-admin-app-root">
@@ -1033,6 +1171,7 @@ export default function App() {
             gatewayUsers={gatewayUsers}
             onRefreshGatewayUsers={refreshGatewayUsers}
             onSetGatewayUserStatus={handleGatewayUserStatus}
+            onUpdateGatewayStoreName={handleUpdateGatewayStoreName}
           />
         </main>
       ) : (
@@ -1046,8 +1185,11 @@ export default function App() {
             <nav className="flex-1 overflow-y-auto py-3">
               <p className="px-5 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">Menu</p>
               {NAV.map(item => (
-                <button key={item.key} onClick={() => setActiveTab(item.key as any)}
-                  className={`w-full flex items-center gap-3 px-5 py-2.5 text-sm font-semibold transition-all ${activeTab === item.key ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 border-r-2 border-indigo-600 dark:border-indigo-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/5 hover:text-slate-800 dark:hover:text-white'}`}>
+                <button
+                  key={item.key}
+                  onClick={() => item.key === 'storefront' ? openStoreEditor() : setActiveTab(item.key as any)}
+                  className={`w-full flex items-center gap-3 px-5 py-2.5 text-sm font-semibold transition-all ${(item.key === 'storefront' ? !!storeEditorMatch : activeTab === item.key) ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 border-r-2 border-indigo-600 dark:border-indigo-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/5 hover:text-slate-800 dark:hover:text-white'}`}
+                >
                   <item.icon className="w-4 h-4" /> {item.label}
                 </button>
               ))}
@@ -1113,15 +1255,18 @@ export default function App() {
                     className="flex items-center gap-2"
                     title="Abrir perfil"
                   >
-                  <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold">{(lojistaUser?.name || 'U').slice(0, 2).toUpperCase()}</div>
-                  <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 hidden sm:block">{lojistaUser?.name}</span>
+                  <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold">{(lojistaUser?.store_name || lojistaUser?.name || 'U').slice(0, 2).toUpperCase()}</div>
+                  <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 hidden sm:block">{lojistaUser?.store_name || lojistaUser?.name}</span>
                   </button>
                   {showProfileMenu && (
                     <div className="absolute right-0 mt-3 w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden z-50">
                       <div className="px-4 py-4 border-b border-slate-100 dark:border-white/10">
-                        <span className="block text-sm font-bold text-slate-800 dark:text-white">{lojistaUser?.name}</span>
+                        <span className="block text-sm font-bold text-slate-800 dark:text-white">{lojistaUser?.store_name || lojistaUser?.name}</span>
                         <span className="block text-xs text-slate-500 truncate">{lojistaUser?.email}</span>
                       </div>
+                      <button onClick={() => openStoreEditor()} className="w-full text-left px-4 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5">
+                        Loja virtual
+                      </button>
                       <button onClick={() => { setActiveTab('settings'); setShowProfileMenu(false); }} className="w-full text-left px-4 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5">
                         Conexões e conta
                       </button>
@@ -1150,8 +1295,11 @@ export default function App() {
               {/* Navegação mobile (sidebar oculta no mobile) */}
               <div className="md:hidden flex gap-2 overflow-x-auto pb-1">
                 {NAV.map(item => (
-                  <button key={item.key} onClick={() => setActiveTab(item.key as any)}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap ${activeTab === item.key ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 border border-slate-200 dark:border-white/10'}`}>
+                  <button
+                    key={item.key}
+                    onClick={() => item.key === 'storefront' ? openStoreEditor() : setActiveTab(item.key as any)}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap ${(item.key === 'storefront' ? !!storeEditorMatch : activeTab === item.key) ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 border border-slate-200 dark:border-white/10'}`}
+                  >
                     <item.icon className="w-3.5 h-3.5" /> {item.label}
                   </button>
                 ))}
@@ -1320,8 +1468,22 @@ export default function App() {
                 onEditProduct={handleEditProduct}
                 onDeleteProduct={handleDeleteProduct}
                 gatewayPhone={gatewayPhone}
-                storeSlug={storeSlug(lojistaUser?.store_name || lojistaUser?.name || lojistaUser?.email)}
+                storeSlug={storeSlug(lojistaUser?.store_name || '')}
               />
+            )}
+
+            {activeTab === 'storefront' && (
+              <div className="rounded-[2rem] border border-white/10 bg-slate-900/60 p-8 text-white shadow-2xl">
+                <p className="text-[11px] uppercase tracking-[0.3em] text-cyan-300 font-black">Editor dedicado</p>
+                <h2 className="mt-3 text-2xl font-black">A Loja Virtual agora abre fora do menu</h2>
+                <p className="mt-2 max-w-2xl text-sm text-slate-400">
+                  O editor usa uma página própria, com canvas visual e drag and drop direto na renderização da loja.
+                </p>
+                <button onClick={openStoreEditor} className="mt-5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 px-5 py-3 text-sm font-black inline-flex items-center gap-2">
+                  <Store className="w-4 h-4" />
+                  Abrir editor da loja
+                </button>
+              </div>
             )}
 
             {activeTab === 'settings' && (

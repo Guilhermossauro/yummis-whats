@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Plus, Search, Edit2, Trash2, Check, X, Tag, Smartphone, Archive, ShoppingBag, DollarSign, Share2 } from 'lucide-react';
 import { SQLProduct } from '../types';
 import { buildWhatsAppProductLink } from '../lib/productShare';
@@ -41,10 +41,28 @@ export default function AdminCatalog({ products, onAddProduct, onEditProduct, on
   const [stock, setStock] = useState('20');
   const [image, setImage] = useState(STOCK_IMAGES[0]);
   const [description, setDescription] = useState('');
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [categoryDraft, setCategoryDraft] = useState('');
   const [hasShipping, setHasShipping] = useState(false);
   const [shippingType, setShippingType] = useState<'free' | 'paid'>('paid');
   const [shippingCost, setShippingCost] = useState('15.00');
   const [errorMsg, setErrorMsg] = useState('');
+
+  const categorySuggestions = useMemo(() => (
+    Array.from(new Set(products.flatMap(product => Array.isArray(product.categories) ? product.categories : [])))
+      .sort((left, right) => left.localeCompare(right, 'pt-BR'))
+  ), [products]);
+
+  const addCategory = (value: string) => {
+    const normalized = value.trim().replace(/\s+/g, ' ');
+    if (!normalized) return;
+    setSelectedCategories(prev => prev.some(category => category.toLowerCase() === normalized.toLowerCase()) ? prev : [...prev, normalized]);
+    setCategoryDraft('');
+  };
+
+  const removeCategory = (value: string) => {
+    setSelectedCategories(prev => prev.filter(category => category.toLowerCase() !== value.toLowerCase()));
+  };
 
   const openNewForm = () => {
     setEditingId(null);
@@ -54,6 +72,8 @@ export default function AdminCatalog({ products, onAddProduct, onEditProduct, on
     setStock('25');
     setImage(STOCK_IMAGES[Math.floor(Math.random() * STOCK_IMAGES.length)]);
     setDescription('');
+    setSelectedCategories([]);
+    setCategoryDraft('');
     setHasShipping(false);
     setShippingType('paid');
     setShippingCost('15.00');
@@ -69,6 +89,8 @@ export default function AdminCatalog({ products, onAddProduct, onEditProduct, on
     setStock(String(prod.estoque));
     setImage(prod.foto_path);
     setDescription(prod.descricao);
+    setSelectedCategories(Array.isArray(prod.categories) ? prod.categories : []);
+    setCategoryDraft('');
     setHasShipping(!!prod.has_shipping);
     setShippingType(prod.shipping_type || 'paid');
     setShippingCost(String(prod.shipping_cost || '15.00'));
@@ -82,6 +104,11 @@ export default function AdminCatalog({ products, onAddProduct, onEditProduct, on
 
     if (!code || !name || !price || !description) {
       setErrorMsg('Por favor, preencha todos os campos obrigatórios.');
+      return;
+    }
+
+    if (!selectedCategories.length) {
+      setErrorMsg('Selecione pelo menos uma categoria para o produto.');
       return;
     }
 
@@ -111,6 +138,7 @@ export default function AdminCatalog({ products, onAddProduct, onEditProduct, on
       foto_path: image || STOCK_IMAGES[0],
       estoque: stockNum,
       descricao: description,
+      categories: selectedCategories,
       has_shipping: hasShipping,
       shipping_type: shippingType,
       shipping_cost: hasShipping && shippingType === 'paid' ? parseFloat(shippingCost) || 0 : 0
@@ -131,7 +159,8 @@ export default function AdminCatalog({ products, onAddProduct, onEditProduct, on
   const filteredProducts = products.filter(p =>
     p.nome.toLowerCase().includes(filterText.toLowerCase()) ||
     p.codigo.includes(filterText) ||
-    p.descricao.toLowerCase().includes(filterText.toLowerCase())
+    p.descricao.toLowerCase().includes(filterText.toLowerCase()) ||
+    (Array.isArray(p.categories) ? p.categories.some(category => category.toLowerCase().includes(filterText.toLowerCase())) : false)
   );
 
   return (
@@ -262,6 +291,71 @@ export default function AdminCatalog({ products, onAddProduct, onEditProduct, on
                   onChange={(e) => setDescription(e.target.value)}
                   className="w-full bg-slate-950 border border-white/5 rounded-xl py-2 px-3 text-xs text-white focus:ring-1 focus:ring-indigo-500 focus:outline-hidden font-sans leading-relaxed"
                 />
+              </div>
+
+              <div className="space-y-2 rounded-xl border border-white/5 bg-slate-950/40 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <label className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Categorias do produto</label>
+                    <p className="text-[10px] text-slate-500 mt-1">Escolha uma ou mais categorias para a vitrine pública.</p>
+                  </div>
+                  <span className="text-[10px] font-mono text-indigo-300">{selectedCategories.length} selecionada(s)</span>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {selectedCategories.map((category) => (
+                    <span key={category} className="inline-flex items-center gap-1 rounded-full border border-indigo-500/20 bg-indigo-500/10 px-2.5 py-1 text-[10px] font-bold text-indigo-100">
+                      {category}
+                      <button type="button" onClick={() => removeCategory(category)} className="text-indigo-200 hover:text-white">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                  {!selectedCategories.length && (
+                    <span className="text-[10px] text-slate-500">Nenhuma categoria escolhida ainda.</span>
+                  )}
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={categoryDraft}
+                    onChange={(e) => setCategoryDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ',') {
+                        e.preventDefault();
+                        addCategory(categoryDraft);
+                      }
+                    }}
+                    placeholder="Ex: Vestidos, Promoções, Verão"
+                    className="flex-1 bg-slate-950 border border-white/5 rounded-xl py-2 px-3 text-xs text-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => addCategory(categoryDraft)}
+                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white"
+                  >
+                    Adicionar categoria
+                  </button>
+                </div>
+
+                {!!categorySuggestions.length && (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {categorySuggestions.map((category) => {
+                      const active = selectedCategories.some(item => item.toLowerCase() === category.toLowerCase());
+                      return (
+                        <button
+                          key={category}
+                          type="button"
+                          onClick={() => active ? removeCategory(category) : addCategory(category)}
+                          className={`rounded-full px-2.5 py-1 text-[10px] font-bold border transition-all ${active ? 'border-indigo-400 bg-indigo-500/15 text-indigo-100' : 'border-white/10 bg-slate-900 text-slate-300 hover:border-white/25'}`}
+                        >
+                          {active ? '✓ ' : '+ '}{category}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Shipping Section */}
@@ -403,6 +497,20 @@ export default function AdminCatalog({ products, onAddProduct, onEditProduct, on
               <div className="p-4 space-y-3 flex-1 flex flex-col justify-between">
                 <div className="space-y-1.5">
                   <h4 className="text-xs font-bold text-white tracking-tight line-clamp-1">{p.nome}</h4>
+                  {!!p.categories?.length && (
+                    <div className="flex flex-wrap gap-1">
+                      {p.categories.slice(0, 3).map((category) => (
+                        <span key={category} className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-2 py-0.5 text-[9px] font-bold text-indigo-200">
+                          {category}
+                        </span>
+                      ))}
+                      {p.categories.length > 3 && (
+                        <span className="rounded-full border border-white/10 px-2 py-0.5 text-[9px] font-bold text-slate-400">
+                          +{p.categories.length - 3}
+                        </span>
+                      )}
+                    </div>
+                  )}
                   <p className="text-[10px] text-slate-400 line-clamp-3 leading-relaxed font-sans">{p.descricao}</p>
                 </div>
 

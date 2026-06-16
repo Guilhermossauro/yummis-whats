@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { ShieldCheck, Mail, Lock, User, Key, ArrowRight } from 'lucide-react';
 import { getGatewayBaseURL } from '../lib/gateway';
-import { StoreLayoutType } from '../types';
+import { StoreLayoutType, StorefrontConfig } from '../types';
 
 interface LoginProps {
-  onLoginSuccess: (user: { id?: string; name: string; email: string; store_name?: string; store_banner_url?: string; store_logo_url?: string; store_layout?: StoreLayoutType; token?: string; status?: string }) => void;
+  onLoginSuccess: (user: { id?: string; name: string; email: string; store_name?: string; store_banner_url?: string; store_logo_url?: string; store_layout?: StoreLayoutType; storefront_config?: StorefrontConfig | null; token?: string; status?: string }) => void;
 }
 
 export default function AdminLogin({ onLoginSuccess }: LoginProps) {
@@ -65,6 +65,7 @@ export default function AdminLogin({ onLoginSuccess }: LoginProps) {
             store_banner_url: user.storeBannerUrl || '',
             store_logo_url: user.storeLogoUrl || '',
             store_layout: user.storeLayout || 'ecommerce',
+            storefront_config: user.storefrontConfig || null,
             token: user.token,
             status: user.status,
           });

@@ -30,6 +30,7 @@ interface SuperAdminProps {
   gatewayUsers?: GatewayUser[];
   onRefreshGatewayUsers?: () => void;
   onSetGatewayUserStatus?: (id: string, status: 'active' | 'pending' | 'blocked') => void;
+  onUpdateGatewayStoreName?: (id: string, storeName: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 export default function SuperAdminPanel({
@@ -42,7 +43,8 @@ export default function SuperAdminPanel({
   onLogout,
   gatewayUsers = [],
   onRefreshGatewayUsers,
-  onSetGatewayUserStatus
+  onSetGatewayUserStatus,
+  onUpdateGatewayStoreName
 }: SuperAdminProps) {
   
   const [newName, setNewName] = useState('');
@@ -56,6 +58,8 @@ export default function SuperAdminPanel({
   const [editEmail, setEditEmail] = useState('');
   const [editPassword, setEditPassword] = useState('');
   const [editStoreName, setEditStoreName] = useState('');
+  const [editingGatewayUserId, setEditingGatewayUserId] = useState<string | null>(null);
+  const [editingGatewayStoreName, setEditingGatewayStoreName] = useState('');
   
   const [localLimit, setLocalLimit] = useState(employeeLimit);
   const [notif, setNotif] = useState<{ type: 'success' | 'warning' | 'error'; text: string } | null>(null);
@@ -69,6 +73,10 @@ export default function SuperAdminPanel({
     e.preventDefault();
     if (!newName.trim() || !newEmail.trim() || !newPassword.trim() || !newStoreName.trim()) {
       triggerNotif('error', 'Por favor preencha todos os campos do vendedor, incluindo o nome da loja.');
+      return;
+    }
+    if (sellers.some(s => s.store_name.trim().toLowerCase() === newStoreName.trim().toLowerCase())) {
+      triggerNotif('error', 'Já existe outra loja cadastrada com esse nome.');
       return;
     }
 
@@ -103,6 +111,10 @@ export default function SuperAdminPanel({
       triggerNotif('error', 'Os campos não podem ser vazios.');
       return;
     }
+    if (sellers.some(s => s.id !== id && s.store_name.trim().toLowerCase() === editStoreName.trim().toLowerCase())) {
+      triggerNotif('error', 'Já existe outra loja cadastrada com esse nome.');
+      return;
+    }
 
     onEditSeller(id, {
       name: editName,
@@ -122,6 +134,32 @@ export default function SuperAdminPanel({
     }
     onUpdateLimit(localLimit);
     triggerNotif('success', `Limite global de funcionários atualizado para ${localLimit}.`);
+  };
+
+  const handleStartGatewayEdit = (user: GatewayUser) => {
+    setEditingGatewayUserId(user.id);
+    setEditingGatewayStoreName(user.storeName || user.username || '');
+  };
+
+  const handleCancelGatewayEdit = () => {
+    setEditingGatewayUserId(null);
+    setEditingGatewayStoreName('');
+  };
+
+  const handleSaveGatewayEdit = async (userId: string) => {
+    const nextName = editingGatewayStoreName.trim();
+    if (!nextName) {
+      triggerNotif('error', 'Informe um nome válido para a loja.');
+      return;
+    }
+    if (!onUpdateGatewayStoreName) return;
+    const result = await onUpdateGatewayStoreName(userId, nextName);
+    if (!result.success) {
+      triggerNotif('error', result.error || 'Não foi possível atualizar a loja.');
+      return;
+    }
+    handleCancelGatewayEdit();
+    triggerNotif('success', 'Nome da loja atualizado com sucesso.');
   };
 
   return (
@@ -199,18 +237,58 @@ export default function SuperAdminPanel({
               <div key={user.id} className="bg-slate-950/70 border border-white/5 rounded-2xl p-4 space-y-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-sm font-bold text-white truncate">{user.storeName || user.username}</p>
+                    {editingGatewayUserId === user.id ? (
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={editingGatewayStoreName}
+                          onChange={(e) => setEditingGatewayStoreName(e.target.value)}
+                          className="w-full bg-slate-900 border border-indigo-500/20 rounded-lg px-2 py-1.5 text-xs text-white"
+                          placeholder="Nome da loja"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleSaveGatewayEdit(user.id)}
+                            className="px-2 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold"
+                          >
+                            Salvar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleCancelGatewayEdit}
+                            className="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 text-[10px] font-bold border border-white/10"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-sm font-bold text-white truncate">{user.storeName || user.username}</p>
+                    )}
                     <p className="text-[10px] text-slate-500 truncate">{user.username}</p>
                   </div>
-                  <span className={`text-[8px] uppercase font-bold px-2 py-0.5 rounded-full border ${
-                    user.status === 'pending'
-                      ? 'bg-amber-950/50 text-amber-300 border-amber-500/20'
-                      : user.status === 'blocked'
-                        ? 'bg-rose-950/50 text-rose-300 border-rose-500/20'
-                        : 'bg-emerald-950/50 text-emerald-300 border-emerald-500/20'
-                  }`}>
-                    {user.status === 'pending' ? 'Aguardando' : user.status === 'blocked' ? 'Bloqueada' : 'Aprovada'}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[8px] uppercase font-bold px-2 py-0.5 rounded-full border ${
+                      user.status === 'pending'
+                        ? 'bg-amber-950/50 text-amber-300 border-amber-500/20'
+                        : user.status === 'blocked'
+                          ? 'bg-rose-950/50 text-rose-300 border-rose-500/20'
+                          : 'bg-emerald-950/50 text-emerald-300 border-emerald-500/20'
+                    }`}>
+                      {user.status === 'pending' ? 'Aguardando' : user.status === 'blocked' ? 'Bloqueada' : 'Aprovada'}
+                    </span>
+                    {editingGatewayUserId !== user.id && (
+                      <button
+                        type="button"
+                        onClick={() => handleStartGatewayEdit(user)}
+                        className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-white/10"
+                        title="Editar nome da loja"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex gap-2">

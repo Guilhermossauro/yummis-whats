@@ -20,6 +20,52 @@ function normalizeStoreLayout(value) {
   return STORE_LAYOUTS.has(layout) ? layout : 'ecommerce';
 }
 
+function normalizeStringArray(value) {
+  if (Array.isArray(value)) {
+    return Array.from(new Set(value.map((item) => String(item || '').trim()).filter(Boolean)));
+  }
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return Array.from(new Set(parsed.map((item) => String(item || '').trim()).filter(Boolean)));
+      }
+    } catch {}
+    return Array.from(new Set(value.split(',').map((item) => item.trim()).filter(Boolean)));
+  }
+  return [];
+}
+
+function safeParseObject(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {}
+  }
+  return {};
+}
+
+function normalizeStoreNameKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function hasDuplicatedStoreName(storeName, exceptUserId) {
+  const key = normalizeStoreNameKey(storeName);
+  if (!key) return false;
+  return gateway.listUsers().some((candidate) => {
+    if (exceptUserId && candidate.id === exceptUserId) return false;
+    return normalizeStoreNameKey(candidate.storeName || candidate.username) === key;
+  });
+}
+
 const app = express();
 const PORT = process.env.PORT || 3060;
 
@@ -470,6 +516,10 @@ app.post('/api/admin/users', (req, res) => {
     return res.status(400).json({ error: 'Este nome de usuário já existe.' });
   }
 
+  if (hasDuplicatedStoreName(storeName || username)) {
+    return res.status(400).json({ error: 'Já existe outra loja com esse nome.' });
+  }
+
   // Generate a cryptographically secure-looking token
   const generatedToken = 'token_' + Math.random().toString(36).substr(2, 9) + '_' + Math.random().toString(36).substr(2, 9);
 
@@ -503,6 +553,10 @@ app.put('/api/admin/users/:id', (req, res) => {
 
   if (!gateway.getUserById(id)) {
     return res.status(404).json({ error: 'Usuário não encontrado.' });
+  }
+
+  if (storeName !== undefined && hasDuplicatedStoreName(storeName, id)) {
+    return res.status(400).json({ error: 'Já existe outra loja com esse nome.' });
   }
 
   const fields = {};
@@ -799,6 +853,7 @@ app.post('/api/auth/signup', (req, res) => {
   const { username, password, storeName } = req.body || {};
   if (!username || !password) return res.status(400).json({ error: 'Usuário e senha são obrigatórios.' });
   if (gateway.getUserByUsername(username)) return res.status(409).json({ error: 'Este nome de usuário já existe.' });
+  if (hasDuplicatedStoreName(storeName || username)) return res.status(409).json({ error: 'Já existe outra loja com esse nome.' });
   const generatedToken = 'token_' + Math.random().toString(36).substr(2, 9) + '_' + Math.random().toString(36).substr(2, 9);
   gateway.createUser({
     id: 'user_' + Date.now(),
@@ -818,12 +873,15 @@ app.post('/api/auth/signup', (req, res) => {
 app.put('/api/user/profile', (req, res) => {
   const user = userFromAuth(req);
   if (!user) return res.status(401).json({ error: 'Token Bearer inválido.' });
-  const { storeName, storeBannerUrl, storeLogoUrl, storeLayout } = req.body || {};
+  const { storeName, storeBannerUrl, storeLogoUrl, storeLayout, storefrontConfig } = req.body || {};
+  if (storeName !== undefined) {
+    return res.status(403).json({ error: 'O nome da loja só pode ser alterado pelo Super Admin.' });
+  }
   const updated = gateway.updateUser(user.id, {
-    ...(storeName !== undefined ? { storeName: String(storeName || '').trim() || user.storeName || user.username } : {}),
     ...(storeBannerUrl !== undefined ? { storeBannerUrl: String(storeBannerUrl || '').trim() || null } : {}),
     ...(storeLogoUrl !== undefined ? { storeLogoUrl: String(storeLogoUrl || '').trim() || null } : {}),
     ...(storeLayout !== undefined ? { storeLayout: normalizeStoreLayout(storeLayout) } : {}),
+    ...(storefrontConfig !== undefined ? { storefrontConfig: safeParseObject(storefrontConfig) } : {}),
   });
   return res.json({ success: true, user: updated });
 });
@@ -1008,6 +1066,7 @@ function mapProduct(row) {
     descricao: row.descricao || '',
     preco: Number(row.preco || 0),
     foto_path: row.foto_path || '',
+    categories: normalizeStringArray(row.categories),
     estoque: Number(row.estoque || 0),
     has_shipping: !!row.has_shipping,
     shipping_type: row.shipping_type || 'paid',
@@ -1022,6 +1081,7 @@ function productPayload(body = {}) {
     descricao: String(body.descricao || '').trim(),
     preco: Number(body.preco || 0),
     foto_path: String(body.foto_path || '').trim(),
+    categories: normalizeStringArray(body.categories),
     estoque: Math.max(0, Number(body.estoque || 0)),
     has_shipping: body.has_shipping ? 1 : 0,
     shipping_type: body.shipping_type === 'free' ? 'free' : 'paid',
@@ -1059,6 +1119,7 @@ app.get('/api/store/:slug', (req, res) => {
       bannerUrl: user.storeBannerUrl || null,
       logoUrl: user.storeLogoUrl || null,
       layout: normalizeStoreLayout(user.storeLayout),
+      config: safeParseObject(user.storefrontConfig),
       slug: slugifyStore(user.storeName || user.username),
       whatsappPhone: session?.phone || null,
     },
@@ -1081,9 +1142,9 @@ app.post('/api/products', (req, res) => {
   try {
     const info = db.prepare(
       `INSERT INTO products
-        (owner_id, codigo, nome, descricao, preco, foto_path, estoque, has_shipping, shipping_type, shipping_cost)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(user.id, p.codigo, p.nome, p.descricao, p.preco, p.foto_path, p.estoque, p.has_shipping, p.shipping_type, p.shipping_cost);
+        (owner_id, codigo, nome, descricao, preco, foto_path, categories, estoque, has_shipping, shipping_type, shipping_cost)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(user.id, p.codigo, p.nome, p.descricao, p.preco, p.foto_path, JSON.stringify(p.categories || []), p.estoque, p.has_shipping, p.shipping_type, p.shipping_cost);
     const created = db.prepare('SELECT * FROM products WHERE id = ? AND owner_id = ?').get(info.lastInsertRowid, user.id);
     return res.json({ success: true, product: mapProduct(created) });
   } catch (err) {
@@ -1103,10 +1164,10 @@ app.put('/api/products/:id', (req, res) => {
   try {
     db.prepare(
       `UPDATE products
-          SET codigo = ?, nome = ?, descricao = ?, preco = ?, foto_path = ?, estoque = ?,
+          SET codigo = ?, nome = ?, descricao = ?, preco = ?, foto_path = ?, categories = ?, estoque = ?,
               has_shipping = ?, shipping_type = ?, shipping_cost = ?
         WHERE id = ? AND owner_id = ?`
-    ).run(p.codigo, p.nome, p.descricao, p.preco, p.foto_path, p.estoque, p.has_shipping, p.shipping_type, p.shipping_cost, id, user.id);
+    ).run(p.codigo, p.nome, p.descricao, p.preco, p.foto_path, JSON.stringify(p.categories || []), p.estoque, p.has_shipping, p.shipping_type, p.shipping_cost, id, user.id);
     const updated = db.prepare('SELECT * FROM products WHERE id = ? AND owner_id = ?').get(id, user.id);
     return res.json({ success: true, product: mapProduct(updated) });
   } catch (err) {
