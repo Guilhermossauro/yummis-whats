@@ -32,17 +32,42 @@ import ChatSimulator from './components/ChatSimulator';
 import SuperAdminPanel from './components/SuperAdminPanel';
 import AdminCustomerProfiles from './components/AdminCustomerProfiles';
 import BotFlowBuilder from './components/BotFlowBuilder';
+import PublicStorefront from './components/PublicStorefront';
 
-import { SQLProduct, SQLLead, SQLCart, SQLOrder, SQLMessageLog, WhatsAppConfig, SQLSeller, SQLEmployee, FlowBlock } from './types';
-import { PRODUCTS } from './data/products';
+import { SQLProduct, SQLLead, SQLCart, SQLOrder, SQLMessageLog, WhatsAppConfig, SQLSeller, SQLEmployee, FlowBlock, GatewayUser, StoreLayoutType } from './types';
 import { getSendMessageURL, getGatewayBaseURL, isGatewayMode } from './lib/gateway';
 import { processBotMessage, BotProduct, BotState } from './lib/botProcessor';
 import DashboardHome from './components/DashboardHome';
+import { normalizeFlowBlocks } from './data/flows';
+
+type SessionUser = {
+  id?: string;
+  name: string;
+  email: string;
+  store_name?: string;
+  store_banner_url?: string;
+  store_logo_url?: string;
+  store_layout?: StoreLayoutType;
+  token?: string;
+  status?: string;
+};
+
+const storeSlug = (value?: string) => String(value || '')
+  .trim()
+  .toLowerCase()
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^a-z0-9]+/g, '_')
+  .replace(/^_+|_+$/g, '');
 
 export default function App() {
+  const publicStoreMatch = window.location.pathname.match(/^\/store\/([^/?#]+)/);
+  if (publicStoreMatch) {
+    return <PublicStorefront slug={decodeURIComponent(publicStoreMatch[1])} />;
+  }
   
   // 1. Session state
-  const [lojistaUser, setLojistaUser] = useState<{ name: string; email: string; store_name?: string } | null>(() => {
+  const [lojistaUser, setLojistaUser] = useState<SessionUser | null>(() => {
     const saved = localStorage.getItem('sql_lojista');
     return saved ? JSON.parse(saved) : null;
   });
@@ -54,6 +79,7 @@ export default function App() {
   const [dark, setDark] = useState<boolean>(() => document.documentElement.classList.contains('dark'));
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [gatewayUsers, setGatewayUsers] = useState<GatewayUser[]>([]);
   const toggleTheme = () => {
     setDark(prev => {
       const next = !prev;
@@ -64,20 +90,9 @@ export default function App() {
   };
 
   // 3. Database tables (Simulated SQL)
-  const [products, setProducts] = useState<SQLProduct[]>(() => {
-    const saved = localStorage.getItem('sql_products');
-    if (saved) return JSON.parse(saved);
-    // Seed initial products
-    return PRODUCTS.map(p => ({
-      id: p.id,
-      codigo: p.code,
-      nome: p.name,
-      descricao: p.description,
-      preco: p.price,
-      foto_path: p.image,
-      estoque: 25
-    }));
-  });
+  const [products, setProducts] = useState<SQLProduct[]>([]);
+  const productsRef = useRef<SQLProduct[]>([]);
+  const cartsRef = useRef<SQLCart[]>([]);
 
   const [leads, setLeads] = useState<SQLLead[]>(() => {
     const saved = localStorage.getItem('sql_leads');
@@ -193,10 +208,68 @@ export default function App() {
     };
   });
 
+  useEffect(() => {
+    productsRef.current = products;
+  }, [products]);
+
+  useEffect(() => {
+    cartsRef.current = carts;
+  }, [carts]);
+
+  const activeGatewayToken = () => whatsAppConfig.apiKey || lojistaUser?.token || '';
+  const gatewayJsonHeaders = () => ({
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${activeGatewayToken()}`,
+  });
+
+  const refreshProductsFromGateway = async () => {
+    const token = activeGatewayToken();
+    if (!token || lojistaUser?.email === 'adminsuper@admin.com') return;
+    const res = await fetch(`${getGatewayBaseURL()}/api/products`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error('Não foi possível carregar o catálogo da loja.');
+    const data = await res.json();
+    setProducts(data.products || []);
+  };
+
+  useEffect(() => {
+    refreshProductsFromGateway().catch((err) => console.warn('[Produtos] Falha ao sincronizar catálogo', err));
+  }, [lojistaUser?.id, lojistaUser?.email, whatsAppConfig.apiKey]);
+
+  const decrementProductStock = async (items: Array<{ id?: string; codigo?: string; quantidade: number }>) => {
+    if (!items.length) return;
+    const token = activeGatewayToken();
+    if (token && lojistaUser?.email !== 'adminsuper@admin.com') {
+      try {
+        const res = await fetch(`${getGatewayBaseURL()}/api/products/decrement-stock`, {
+          method: 'POST',
+          headers: gatewayJsonHeaders(),
+          body: JSON.stringify({ items }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const updated: SQLProduct[] = data.products || [];
+          if (updated.length) {
+            setProducts(prev => prev.map(p => updated.find(u => String(u.id) === String(p.id)) || p));
+          }
+          return;
+        }
+      } catch (err) {
+        console.warn('[Produtos] Falha ao baixar estoque no gateway', err);
+      }
+    }
+
+    setProducts(prev => prev.map(product => {
+      const match = items.find(item => String(item.id || '') === String(product.id) || item.codigo === product.codigo);
+      return match ? { ...product, estoque: Math.max(0, product.estoque - match.quantidade) } : product;
+    }));
+  };
+
   // Write variables back into LocalStorage to guarantee durable data persistence
   useEffect(() => {
-    localStorage.setItem('sql_products', JSON.stringify(products));
-  }, [products]);
+    localStorage.removeItem('sql_products');
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('sql_leads', JSON.stringify(leads));
@@ -248,19 +321,29 @@ export default function App() {
 
     // Produtos atuais da plataforma (para o catálogo do bot e o card com foto)
     const readProducts = (): BotProduct[] => {
-      try {
-        const saved = JSON.parse(localStorage.getItem('sql_products') || '[]');
-        return saved.map((p: any) => ({
-          codigo: p.codigo, nome: p.nome, preco: p.preco, estoque: p.estoque,
-          descricao: p.descricao, foto_path: p.foto_path,
-        }));
-      } catch { return []; }
+      return productsRef.current.map((p: any) => ({
+        codigo: p.codigo, nome: p.nome, preco: p.preco, estoque: p.estoque,
+        descricao: p.descricao, foto_path: p.foto_path,
+      }));
     };
 
     const readFlow = (): FlowBlock[] => {
       try {
-        return JSON.parse(localStorage.getItem('sql_bot_flow') || '[]');
-      } catch { return []; }
+        return normalizeFlowBlocks(JSON.parse(localStorage.getItem('sql_bot_flow') || '[]'));
+      } catch { return normalizeFlowBlocks([]); }
+    };
+
+    const readCartSummary = (leadId: string) => {
+      const items = cartsRef.current.filter(item => item.lead_id === leadId);
+      if (!items.length) return 'Sua sacola ainda está vazia. Digite *catálogo* para escolher produtos.';
+      let total = 0;
+      const lines = items.map((item, index) => {
+        const product = productsRef.current.find(p => p.id === item.product_id);
+        const subtotal = (product?.preco || 0) * item.quantidade;
+        total += subtotal;
+        return `*${index + 1}.* ${product?.nome || 'Produto'}\n  └ Qtd: *${item.quantidade}* | Subtotal: *R$ ${subtotal.toFixed(2).replace('.', ',')}*`;
+      });
+      return `${lines.join('\n\n')}\n\n💰 *Total estimado:* R$ ${total.toFixed(2).replace('.', ',')}`;
     };
 
     // PROCESSAMENTO DO BOT (na plataforma) + envio da resposta pelo gateway
@@ -272,6 +355,7 @@ export default function App() {
         leadName: firstName,
         registered: !!m.cadastrado,
         flowBlocks: readFlow(),
+        cartSummaryText: readCartSummary(stateKey),
       });
       botStateRef.current[stateKey] = result.nextState;
       localStorage.setItem('gw_bot_state', JSON.stringify(botStateRef.current));
@@ -287,13 +371,55 @@ export default function App() {
         }).catch(() => {});
       }
 
+      // Efeito de CARRINHO: link de produto/vitrine confirma e adiciona à sacola sem pausar o bot.
+      const cartEffects = result.effects?.filter((effect) => effect.type === 'add_to_cart') || [];
+      if (cartEffects.length) {
+        const now = new Date().toISOString();
+        setCarts(prev => {
+          let next = [...prev];
+          for (const effect of cartEffects) {
+            if (effect.type !== 'add_to_cart') continue;
+            const product = productsRef.current.find(p => p.codigo.toLowerCase() === effect.data.codigo.toLowerCase());
+            if (!product) continue;
+            const existingIndex = next.findIndex(item => item.lead_id === stateKey && item.product_id === product.id && item.size === 'Único');
+            if (existingIndex >= 0) {
+              next = next.map((item, index) => index === existingIndex
+                ? { ...item, quantidade: item.quantidade + effect.data.quantidade, atualizado_em: now }
+                : item);
+            } else {
+              next.push({
+                id: `gw_cart_${m.lead_id}_${product.id}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                lead_id: stateKey,
+                product_id: product.id,
+                quantidade: effect.data.quantidade,
+                size: 'Único',
+                atualizado_em: now,
+              });
+            }
+          }
+          return next;
+        });
+        setLeads(prev => prev.map(l => l.id === stateKey ? { ...l, status_funil: 'CARRINHO_ABERTO', ultimo_gatilho: now } : l));
+      }
+
+      if (result.effects?.some((effect) => effect.type === 'clear_cart')) {
+        setCarts(prev => prev.filter(item => item.lead_id !== stateKey));
+      }
+
+      const statusEffect = result.effects?.find((effect) => effect.type === 'set_lead_status');
+      if (statusEffect && statusEffect.type === 'set_lead_status') {
+        setLeads(prev => prev.map(l => l.id === stateKey ? {
+          ...l,
+          status_funil: statusEffect.data.status,
+          ultimo_gatilho: new Date().toISOString(),
+        } : l));
+      }
+
       // Efeito de COMPRA CONFIRMADA: baixa o estoque do produto no catálogo.
       const stockEffect = result.effects?.find((effect) => effect.type === 'decrement_stock');
       if (stockEffect && stockEffect.type === 'decrement_stock') {
         const { codigo, quantidade } = stockEffect.data;
-        setProducts(prev => prev.map(p =>
-          p.codigo === codigo ? { ...p, estoque: Math.max(0, (p.estoque || 0) - quantidade) } : p
-        ));
+        await decrementProductStock([{ codigo, quantidade }]);
       }
 
       // Ação de handoff: pausa o bot no gateway (atendente assume)
@@ -360,12 +486,11 @@ export default function App() {
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
           body: JSON.stringify({ messageId: m.id }),
         });
-        if (res.status === 404) return true;
-        if (!res.ok) return true;
+        if (!res.ok) return false;
         const data = await res.json();
         return !!data.claimed;
       } catch {
-        return true;
+        return false;
       }
     };
 
@@ -542,40 +667,128 @@ export default function App() {
   };
 
   // Auth logins handler
-  const handleLogin = (user: { name: string; email: string }) => {
+  const handleLogin = (user: SessionUser) => {
     setLojistaUser(user);
     localStorage.setItem('sql_lojista', JSON.stringify(user));
+    if (user.token) {
+      setWhatsAppConfig(prev => ({
+        ...prev,
+        mode: 'yummis',
+        apiKey: user.token || prev.apiKey,
+        apiURL: '',
+      }));
+    }
   };
 
   const handleLogout = () => {
     setLojistaUser(null);
+    setProducts([]);
+    setWhatsAppConfig({ mode: 'sandbox', apiKey: '', instanceName: '', apiURL: '' });
     localStorage.removeItem('sql_lojista');
+    localStorage.removeItem('sql_whatsapp_config');
   };
 
-  const handleUpdateProfile = (name: string, email: string, storeName?: string) => {
+  const handleUpdateProfile = (name: string, email: string, storeName?: string, storeBannerUrl?: string, storeLogoUrl?: string, storeLayout?: StoreLayoutType) => {
     if (lojistaUser) {
-      const updated = { ...lojistaUser, name, email, store_name: storeName };
+      const updated = { ...lojistaUser, name, email, store_name: storeName, store_banner_url: storeBannerUrl, store_logo_url: storeLogoUrl, store_layout: storeLayout };
       setLojistaUser(updated);
       localStorage.setItem('sql_lojista', JSON.stringify(updated));
       // Also update in sellers list if it exists to keep tables in sync
       setSellers(prev => prev.map(s => s.email.toLowerCase() === email.toLowerCase() ? { ...s, name, store_name: storeName || s.store_name } : s));
+      if (lojistaUser.token) {
+        fetch(`${getGatewayBaseURL()}/api/user/profile`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${lojistaUser.token}`,
+          },
+          body: JSON.stringify({ storeName, storeBannerUrl, storeLogoUrl, storeLayout }),
+        }).catch((err) => console.warn('[Perfil] Falha ao sincronizar banner da loja', err));
+      }
     }
   };
 
-  // SQL MUTATORS
-  const handleAddProduct = (payload: Omit<SQLProduct, 'id'>) => {
-    const newProduct: SQLProduct = {
-      ...payload,
-      id: String(products.length + 101)
-    };
-    setProducts(prev => [newProduct, ...prev]);
+  const refreshGatewayUsers = async () => {
+    try {
+      const res = await fetch(`${getGatewayBaseURL()}/api/admin/users`);
+      if (!res.ok) return;
+      setGatewayUsers(await res.json());
+    } catch (err) {
+      console.warn('[Admin] Falha ao carregar lojas do gateway', err);
+    }
   };
 
-  const handleEditProduct = (id: string, payload: Partial<SQLProduct>) => {
+  useEffect(() => {
+    if (lojistaUser?.email === 'adminsuper@admin.com') {
+      refreshGatewayUsers();
+    }
+  }, [lojistaUser?.email]);
+
+  const handleGatewayUserStatus = async (id: string, status: 'active' | 'pending' | 'blocked') => {
+    const res = await fetch(`${getGatewayBaseURL()}/api/admin/users/${id}/status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.error || 'Não foi possível atualizar a loja.');
+      return;
+    }
+    setGatewayUsers(prev => prev.map(user => user.id === id ? data.user : user));
+  };
+
+  // SQL MUTATORS
+  const handleAddProduct = async (payload: Omit<SQLProduct, 'id'>) => {
+    const token = activeGatewayToken();
+    if (token && lojistaUser?.email !== 'adminsuper@admin.com') {
+      const res = await fetch(`${getGatewayBaseURL()}/api/products`, {
+        method: 'POST',
+        headers: gatewayJsonHeaders(),
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Não foi possível cadastrar o produto.');
+      }
+      setProducts(prev => [data.product, ...prev]);
+      return;
+    }
+
+    setProducts(prev => [{ ...payload, id: String(prev.length + 101) }, ...prev]);
+  };
+
+  const handleEditProduct = async (id: string, payload: Partial<SQLProduct>) => {
+    const token = activeGatewayToken();
+    if (token && lojistaUser?.email !== 'adminsuper@admin.com') {
+      const res = await fetch(`${getGatewayBaseURL()}/api/products/${id}`, {
+        method: 'PUT',
+        headers: gatewayJsonHeaders(),
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Não foi possível atualizar o produto.');
+      }
+      setProducts(prev => prev.map(p => p.id === id ? data.product : p));
+      return;
+    }
+
     setProducts(prev => prev.map(p => p.id === id ? { ...p, ...payload } : p));
   };
 
-  const handleDeleteProduct = (id: string) => {
+  const handleDeleteProduct = async (id: string) => {
+    const token = activeGatewayToken();
+    if (token && lojistaUser?.email !== 'adminsuper@admin.com') {
+      const res = await fetch(`${getGatewayBaseURL()}/api/products/${id}`, {
+        method: 'DELETE',
+        headers: gatewayJsonHeaders(),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Não foi possível excluir o produto.');
+      }
+    }
     setProducts(prev => prev.filter(p => p.id !== id));
   };
 
@@ -749,6 +962,10 @@ export default function App() {
   };
 
   const handleConfirmOrderPayment = (leadId: string) => {
+    const paidItems = carts
+      .filter(c => c.lead_id === leadId)
+      .map(c => ({ id: c.product_id, quantidade: c.quantidade }));
+    decrementProductStock(paidItems).catch((err) => console.warn('[Produtos] Falha ao baixar estoque da compra', err));
     setOrders(prev => prev.map(o => o.lead_id === leadId ? { ...o, status_pagamento: 'PAGO' } : o));
     setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status_funil: 'PAGO', ultimo_gatilho: new Date().toISOString() } : l));
     // Clear cart once order paid
@@ -813,6 +1030,9 @@ export default function App() {
             onDeleteSeller={handleDeleteSeller}
             onUpdateLimit={setEmployeeLimit}
             onLogout={handleLogout}
+            gatewayUsers={gatewayUsers}
+            onRefreshGatewayUsers={refreshGatewayUsers}
+            onSetGatewayUserStatus={handleGatewayUserStatus}
           />
         </main>
       ) : (
@@ -1083,7 +1303,6 @@ export default function App() {
                 messages={messages}
                 carts={carts}
                 products={products}
-                whatsAppConfig={whatsAppConfig}
                 onSendManualMessage={handleSendManualMessage}
                 onToggleBot={handleToggleBot}
                 onSimulateWebhook={() => {}}
@@ -1101,6 +1320,7 @@ export default function App() {
                 onEditProduct={handleEditProduct}
                 onDeleteProduct={handleDeleteProduct}
                 gatewayPhone={gatewayPhone}
+                storeSlug={storeSlug(lojistaUser?.store_name || lojistaUser?.name || lojistaUser?.email)}
               />
             )}
 

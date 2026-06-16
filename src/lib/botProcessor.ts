@@ -28,6 +28,7 @@ export interface BotContext {
   leadName?: string;
   registered?: boolean;
   flowBlocks?: FlowBlock[];
+  cartSummaryText?: string;
 }
 
 export type BotReply =
@@ -35,11 +36,12 @@ export type BotReply =
   | { type: 'image'; image: string; caption: string };
 
 export interface BotState {
-  step: 'start' | 'reg_nome' | 'reg_email' | 'reg_confirm' | 'confirm_product' | 'menu' | 'handoff';
+  step: 'start' | 'reg_nome' | 'reg_email' | 'reg_confirm' | 'confirm_product' | 'confirm_cart' | 'menu' | 'handoff';
   data: { nome?: string; email?: string };
   errors: number;
   registered: boolean;
   pendingProduct?: string | null;
+  pendingCart?: Array<{ codigo: string; quantidade: number }> | null;
   flowBlockId?: string | null;
 }
 
@@ -49,11 +51,15 @@ export interface BotResult {
   action?: 'pause_bot';
   effects?: Array<
     | { type: 'register_lead'; data: { nome: string; email: string } }
+    | { type: 'add_to_cart'; data: { codigo: string; quantidade: number } }
     | { type: 'decrement_stock'; data: { codigo: string; quantidade: number } }
+    | { type: 'clear_cart'; data: {} }
+    | { type: 'set_lead_status'; data: { status: 'CARRINHO_ABERTO' | 'AGUARDANDO_PIX' | 'PAGO' | 'CONCLUIDO' } }
   >;
 }
 
 export const PASSPHRASE_PREFIX = '#YMS:'; // marca o produto no link compartilhável
+export const CART_PASSPHRASE_PREFIX = '#YMS_CART:'; // marca uma lista vinda da vitrine pública
 const MAX_ERRORS = 3;
 
 const t = (text: string): BotReply => ({ type: 'text', text });
@@ -63,7 +69,7 @@ const isNo = (s: string) => /\b(nao|n|negativo|errado|incorreto|editar|corrigir|
 const isMedia = (s: string) => /^\s*\[(áudio|audio|imagem|image|foto|sticker|figurinha|vídeo|video|mídia|midia|documento)\]/i.test(s || '');
 
 function initial(registered = false): BotState {
-  return { step: 'start', data: {}, errors: 0, registered, pendingProduct: null };
+  return { step: 'start', data: {}, errors: 0, registered, pendingProduct: null, pendingCart: null };
 }
 
 function findProduct(input: string, products?: BotProduct[]): BotProduct | null {
@@ -84,6 +90,36 @@ function findProduct(input: string, products?: BotProduct[]): BotProduct | null 
     products.find((p) => cleaned.length >= 4 && norm(p.nome).includes(cleaned)) ||
     null
   );
+}
+
+function parseCartRequest(input: string, products?: BotProduct[]) {
+  if (!products?.length) return null;
+  const match = input.match(/#YMS_CART:([A-Za-z0-9_.,xX-]+)/i);
+  if (!match) return null;
+  const items = match[1]
+    .split(',')
+    .map((piece) => {
+      const [rawCode, rawQty] = piece.split(/[xX]/);
+      const codigo = (rawCode || '').trim();
+      const quantidade = Math.max(1, Number.parseInt(rawQty || '1', 10) || 1);
+      const product = products.find((p) => p.codigo.toLowerCase() === codigo.toLowerCase());
+      return product ? { codigo: product.codigo, quantidade } : null;
+    })
+    .filter(Boolean) as Array<{ codigo: string; quantidade: number }>;
+  return items.length ? items : null;
+}
+
+function cartSummary(items: Array<{ codigo: string; quantidade: number }>, products?: BotProduct[]) {
+  const lines = items.map((item) => {
+    const product = findByCode(item.codigo, products);
+    const price = product ? Number(product.preco) * item.quantidade : 0;
+    return `• ${item.quantidade}x *${product?.nome || item.codigo}* (${item.codigo})${product ? ` — R$ ${price.toFixed(2)}` : ''}`;
+  });
+  const total = items.reduce((sum, item) => {
+    const product = findByCode(item.codigo, products);
+    return sum + (product ? Number(product.preco) * item.quantidade : 0);
+  }, 0);
+  return `${lines.join('\n')}\n\n*Total estimado:* R$ ${total.toFixed(2)}`;
 }
 
 /** Card de produto: foto + ficha na estrutura solicitada. */
@@ -131,19 +167,24 @@ function optionMatches(input: string, block: FlowBlock) {
 
 function globalFlowBlock(input: string, flowBlocks: FlowBlock[]) {
   const n = norm(input);
-  return flowBlocks.find((block) => {
+  for (const block of flowBlocks) {
     const id = norm(block.id);
     const title = norm(block.title);
-    if (n === id || (id.length > 3 && n.includes(id)) || (title.length > 3 && title.includes(n))) return true;
-    if (block.id === 'catalogo' && ['catalogo', 'produtos', 'colecao', 'ver produtos'].some((word) => n.includes(word))) return true;
-    if (block.id === 'carrinho' && ['carrinho', 'sacola', 'itens'].some((word) => n.includes(word))) return true;
-    if (block.id === 'faturamento' && ['finalizar', 'fechar', 'faturamento', 'pagar', 'checkout', 'concluir'].some((word) => n.includes(word))) return true;
-    if (block.id === 'suporte' && ['suporte', 'humano', 'atendente'].some((word) => n.includes(word))) return true;
-    return false;
-  }) || null;
+    const builtInGlobal =
+      (block.id === 'catalogo' && ['catalogo', 'produtos', 'colecao', 'ver produtos'].some((word) => n.includes(word))) ||
+      (block.id === 'carrinho' && ['carrinho', 'sacola', 'itens'].some((word) => n.includes(word))) ||
+      (block.id === 'faturamento' && ['finalizar', 'fechar', 'faturamento', 'pagar', 'checkout', 'concluir'].some((word) => n.includes(word))) ||
+      (block.id === 'suporte' && ['suporte', 'humano', 'atendente'].some((word) => n.includes(word)));
+    if (builtInGlobal) return block;
+    if (!block.isGlobalTrigger) continue;
+    const matched = block.type === 'options' ? optionMatches(input, block) : null;
+    if (matched) return flowBlocks.find((target) => target.id === matched.destinationBlockId) || block;
+    if (n === id || (id.length > 3 && n.includes(id)) || (title.length > 3 && title.includes(n))) return block;
+  }
+  return null;
 }
 
-function flowReply(block: FlowBlock, products: BotProduct[]): BotReply {
+function flowReply(block: FlowBlock, products: BotProduct[], cartSummaryText?: string): BotReply {
   let text = block.message || '';
   if (block.type === 'options' && block.options.length) {
     const list = block.optionType === 'numeric'
@@ -158,10 +199,13 @@ function flowReply(block: FlowBlock, products: BotProduct[]): BotReply {
       .join('\n');
     text += `\n\n${list}\n\n📷 Envie o *código* de um produto para ver foto e detalhes.`;
   }
+  if (block.id === 'carrinho') {
+    text += `\n\n${cartSummaryText || 'Sua sacola ainda está vazia. Digite *catálogo* para escolher produtos.'}`;
+  }
   return t(text);
 }
 
-function processConfiguredFlow(input: string, state: BotState, flowBlocks: FlowBlock[], products: BotProduct[]): BotResult | null {
+function processConfiguredFlow(input: string, state: BotState, flowBlocks: FlowBlock[], products: BotProduct[], cartSummaryText?: string): BotResult | null {
   if (!flowBlocks.length) return null;
   const start = flowBlocks.find((block) => block.isStarting) || flowBlocks.find((block) => block.id === 'boas_vindas') || flowBlocks[0];
   const current = flowBlocks.find((block) => block.id === state.flowBlockId) || start;
@@ -176,11 +220,22 @@ function processConfiguredFlow(input: string, state: BotState, flowBlocks: FlowB
 
   if (!target) target = globalFlowBlock(input, flowBlocks);
   if (!target) return null;
+  const effects: BotResult['effects'] = [];
+  if (target.actionType === 'clear_cart') effects.push({ type: 'clear_cart', data: {} });
+  if (target.actionType === 'show_catalog' || target.actionType === 'set_status_carrinho') {
+    effects.push({ type: 'set_lead_status', data: { status: 'CARRINHO_ABERTO' } });
+  }
+  if (target.actionType === 'create_pix' || target.actionType === 'set_status_aguardando') {
+    effects.push({ type: 'set_lead_status', data: { status: 'AGUARDANDO_PIX' } });
+  }
+  if (target.actionType === 'set_status_pago') effects.push({ type: 'set_lead_status', data: { status: 'PAGO' } });
+  if (target.actionType === 'set_status_concluido') effects.push({ type: 'set_lead_status', data: { status: 'CONCLUIDO' } });
 
   return {
-    replies: [flowReply(target, products)],
+    replies: [flowReply(target, products, cartSummaryText)],
     nextState: { ...state, step: 'menu', flowBlockId: target.id, errors: 0 },
     action: target.actionType === 'pause_bot' ? 'pause_bot' : undefined,
+    effects: effects.length ? effects : undefined,
   };
 }
 
@@ -209,27 +264,49 @@ export function processBotMessage(input: string, prev: BotState | undefined, ctx
     return fail('Por enquanto só consigo ler *mensagens de texto* 🙈. Pode escrever, por favor?');
   }
 
+  // ------ Carrinho vindo da vitrine pública (/store) ------
+  const cartRequest = parseCartRequest(input, products);
+  if (cartRequest) {
+    state = { ...state, pendingCart: cartRequest, pendingProduct: null, errors: 0 };
+    if (!state.registered) {
+      return {
+        replies: [t(
+          `Recebi sua lista de compra da nossa vitrine online 🛍️\n\n${cartSummary(cartRequest, products)}\n\n` +
+          `Antes de adicionar tudo à sacola, preciso realizar seu *cadastro* no sistema.\n\nQual é o seu *nome completo*?`
+        )],
+        nextState: { ...state, step: 'reg_nome', flowBlockId: 'cadastro_cliente' },
+      };
+    }
+    return {
+      replies: [t(
+        `Recebi sua lista da vitrine online 🛍️\n\n${cartSummary(cartRequest, products)}\n\n` +
+        `Confirma adicionar esses itens ao carrinho? Responda *sim* ou *não*.`
+      )],
+      nextState: { ...state, step: 'confirm_cart', flowBlockId: 'link_carrinho_loja' },
+    };
+  }
+
   // ------ Interesse em produto (link com palavra-passe, ou código/nome) ------
   const product = findProduct(input, products);
   if (product) {
-    state = { ...state, pendingProduct: product.codigo, errors: 0 };
+    state = { ...state, pendingProduct: product.codigo, pendingCart: null, errors: 0 };
     if (!state.registered) {
       return {
         replies: [t(
           `Que ótima escolha! 😍 Para seguir com *${product.nome}*, antes preciso realizar seu *cadastro* no sistema.\n\n` +
           `Qual é o seu *nome completo*?`
         )],
-        nextState: { ...state, step: 'reg_nome' },
+        nextState: { ...state, step: 'reg_nome', flowBlockId: 'cadastro_cliente' },
       };
     }
     return {
       replies: [productCard(product), t(`Você *confirma* o interesse em *${product.nome}*? (responda *sim* ou *não*)`)],
-      nextState: { ...state, step: 'confirm_product' },
+      nextState: { ...state, step: 'confirm_product', flowBlockId: 'confirmar_produto' },
     };
   }
 
   if (state.step === 'start' || state.step === 'menu') {
-    const configured = processConfiguredFlow(input, state, ctx.flowBlocks || [], products);
+    const configured = processConfiguredFlow(input, state, ctx.flowBlocks || [], products, ctx.cartSummaryText);
     if (configured) return configured;
   }
 
@@ -260,12 +337,25 @@ export function processBotMessage(input: string, prev: BotState | undefined, ctx
 
     case 'reg_confirm': {
       if (isYes(input)) {
+        if (state.pendingCart?.length) {
+          return {
+            replies: [
+              t('✅ Cadastro confirmado com sucesso! Seus dados foram salvos.'),
+              t(
+                `Vamos conferir sua sacola vinda da vitrine:\n\n${cartSummary(state.pendingCart, products)}\n\n` +
+                `Confirma adicionar esses itens ao carrinho? Responda *sim* ou *não*.`
+              ),
+            ],
+            nextState: { ...state, step: 'confirm_cart', registered: true, errors: 0, flowBlockId: 'link_carrinho_loja' },
+            effects: [{ type: 'register_lead', data: { nome: state.data.nome || '', email: state.data.email || '' } }],
+          };
+        }
         const prod = findByCode(state.pendingProduct, products);
         const base: BotReply[] = [t('✅ Cadastro confirmado com sucesso! Seus dados foram salvos.')];
         if (prod) {
           return {
             replies: [...base, productCard(prod), t(`Você *confirma* o interesse em *${prod.nome}*? (*sim* / *não*)`)],
-            nextState: { ...state, step: 'confirm_product', registered: true, errors: 0 },
+            nextState: { ...state, step: 'confirm_product', registered: true, errors: 0, flowBlockId: 'confirmar_produto' },
             effects: [{ type: 'register_lead', data: { nome: state.data.nome || '', email: state.data.email || '' } }],
           };
         }
@@ -287,27 +377,52 @@ export function processBotMessage(input: string, prev: BotState | undefined, ctx
     case 'confirm_product': {
       const prod = findByCode(state.pendingProduct, products);
       if (isYes(input)) {
-        // Confirmação de compra: baixa 1 unidade do estoque do produto.
-        const effects = prod && prod.estoque > 0
-          ? [{ type: 'decrement_stock' as const, data: { codigo: prod.codigo, quantidade: 1 } }]
-          : undefined;
-        const aviso = prod && prod.estoque <= 0
-          ? `\n\n⚠️ Atenção: *${prod.nome}* está sem estoque no momento — o atendente confirmará a disponibilidade.`
-          : '';
+        if (prod && prod.estoque <= 0) {
+          return {
+            replies: [t(`⚠️ *${prod.nome}* está sem estoque no momento.\n\nDigite *catálogo* para ver outras opções ou *carrinho* para conferir sua sacola.`)],
+            nextState: { ...state, step: 'menu', pendingProduct: null, errors: 0, flowBlockId: 'catalogo' },
+          };
+        }
         return {
-          replies: [t(`🎉 Interesse em *${prod?.nome || 'seu produto'}* registrado! Um *atendente* vai falar com você para finalizar. Obrigado! 🙌${aviso}`)],
-          nextState: { ...state, step: 'handoff', pendingProduct: null, errors: 0 },
-          action: 'pause_bot',
-          effects,
+          replies: [t(
+            `✅ *${prod?.nome || 'Produto'}* adicionado ao carrinho!\n\n` +
+            `1. 🛒 Ver carrinho / sacola\n` +
+            `2. 👗 Continuar vendo catálogo`
+          )],
+          nextState: { ...state, step: 'menu', pendingProduct: null, errors: 0, flowBlockId: 'adicionar_carrinho' },
+          effects: prod ? [{ type: 'add_to_cart', data: { codigo: prod.codigo, quantidade: 1 } }] : undefined,
         };
       }
       if (isNo(input)) {
         return {
           replies: [t('Tudo bem! Quer ver outra peça? Envie o *código* de outro produto ou *catálogo*.')],
-          nextState: { ...state, step: 'menu', pendingProduct: null, errors: 0 },
+          nextState: { ...state, step: 'menu', pendingProduct: null, errors: 0, flowBlockId: 'catalogo' },
         };
       }
       return fail('Responda *sim* para confirmar o produto ou *não* para escolher outro.');
+    }
+
+    case 'confirm_cart': {
+      if (isYes(input)) {
+        const items = state.pendingCart || [];
+        const effects = items.map((item) => ({ type: 'add_to_cart' as const, data: item }));
+        return {
+          replies: [t(
+            `✅ Itens adicionados ao carrinho!\n\n` +
+            `1. 🛒 Ver carrinho / sacola\n` +
+            `2. 👗 Continuar vendo catálogo`
+          )],
+          nextState: { ...state, step: 'menu', pendingCart: null, errors: 0, flowBlockId: 'adicionar_carrinho' },
+          effects,
+        };
+      }
+      if (isNo(input)) {
+        return {
+          replies: [t('Sem problema! Digite *catálogo* para escolher outros produtos ou volte à vitrine para ajustar a sacola.')],
+          nextState: { ...state, step: 'menu', pendingCart: null, errors: 0, flowBlockId: 'catalogo' },
+        };
+      }
+      return fail('Responda *sim* para adicionar a lista ao carrinho ou *não* para ajustar.');
     }
 
     default: {

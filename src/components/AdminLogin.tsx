@@ -1,21 +1,23 @@
 import React, { useState } from 'react';
 import { ShieldCheck, Mail, Lock, User, Key, ArrowRight } from 'lucide-react';
+import { getGatewayBaseURL } from '../lib/gateway';
+import { StoreLayoutType } from '../types';
 
 interface LoginProps {
-  onLoginSuccess: (user: { name: string; email: string }) => void;
+  onLoginSuccess: (user: { id?: string; name: string; email: string; store_name?: string; store_banner_url?: string; store_logo_url?: string; store_layout?: StoreLayoutType; token?: string; status?: string }) => void;
 }
 
 export default function AdminLogin({ onLoginSuccess }: LoginProps) {
   const [isLogin, setIsLogin] = useState(true);
-  const [email, setEmail] = useState('info@modaexpress.com.br');
-  const [password, setPassword] = useState('123456');
+  const [email, setEmail] = useState('lojista');
+  const [password, setPassword] = useState('123');
   const [name, setName] = useState('Guilherme');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
   const [forgotMode, setForgotMode] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccess('');
@@ -38,13 +40,37 @@ export default function AdminLogin({ onLoginSuccess }: LoginProps) {
         } else {
           setError('Senha incorreta para o Super Administrador! Use "Admin123".');
         }
-      } else if (email === 'info@modaexpress.com.br' && password === '123456') {
-        onLoginSuccess({ name: 'Guilherme', email });
-      } else if (password.length >= 6) {
-        // Allow automatic login for test flexibility
-        onLoginSuccess({ name: name || 'Lojista Convidado', email });
       } else {
-        setError('Credenciais inválidas! Use e-mail "info@modaexpress.com.br" e senha "123456" ou preencha qualquer senha de 6 dígitos.');
+        try {
+          const res = await fetch(`${getGatewayBaseURL()}/api/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: email.trim(), password }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.success) {
+            setError(data.error || 'Usuário ou senha incorretos.');
+            return;
+          }
+          if (data.role === 'admin') {
+            onLoginSuccess({ name: 'Super Administrador', email: 'adminsuper@admin.com' });
+            return;
+          }
+          const user = data.user;
+          onLoginSuccess({
+            id: user.id,
+            name: user.storeName || user.username,
+            email: user.username,
+            store_name: user.storeName || user.username,
+            store_banner_url: user.storeBannerUrl || '',
+            store_logo_url: user.storeLogoUrl || '',
+            store_layout: user.storeLayout || 'ecommerce',
+            token: user.token,
+            status: user.status,
+          });
+        } catch {
+          setError('Não consegui conectar ao gateway de login. Verifique se o sistema está rodando.');
+        }
       }
     } else {
       if (!name || !email || !password) {
@@ -55,10 +81,23 @@ export default function AdminLogin({ onLoginSuccess }: LoginProps) {
         setError('A senha deve ter pelo menos 6 caracteres.');
         return;
       }
-      setSuccess('Conta criada com sucesso! Redirecionando...');
-      setTimeout(() => {
-        onLoginSuccess({ name, email });
-      }, 1200);
+      try {
+        const res = await fetch(`${getGatewayBaseURL()}/api/auth/signup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: email.trim(), password, storeName: name.trim() }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setError(data.error || 'Não foi possível criar a loja.');
+          return;
+        }
+        setSuccess('Loja cadastrada! Agora aguarde a aprovação do administrador para acessar.');
+        setPassword('');
+        setTimeout(() => setIsLogin(true), 1800);
+      } catch {
+        setError('Não consegui conectar ao gateway de cadastro. Verifique se o sistema está rodando.');
+      }
     }
   };
 
@@ -115,12 +154,12 @@ export default function AdminLogin({ onLoginSuccess }: LoginProps) {
           )}
 
           <div className="space-y-1.5">
-            <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">E-mail Corporativo</label>
+                <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Usuário ou e-mail</label>
             <div className="relative">
               <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
               <input
-                type="email"
-                placeholder="Ex: info@modaexpress.com.br"
+                  type="text"
+                  placeholder="Ex: lojista"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full bg-slate-950 border border-white/5 rounded-xl py-2.5 pl-10 pr-4 text-xs text-white placeholder-slate-650 focus:ring-1 focus:ring-indigo-500 focus:outline-hidden font-sans"
@@ -193,7 +232,7 @@ export default function AdminLogin({ onLoginSuccess }: LoginProps) {
         {isLogin && (
           <div className="mt-4 p-2 bg-slate-950/40 rounded-xl border border-white/5 text-[10px] text-slate-500 text-center font-mono">
             💡 Credenciais Admin Padrão<br />
-            E-mail: <span className="text-slate-350">info@modaexpress.com.br</span> • Senha: <span className="text-slate-350">123456</span>
+              Usuário: <span className="text-slate-350">lojista</span> • Senha: <span className="text-slate-350">123</span>
           </div>
         )}
       </div>

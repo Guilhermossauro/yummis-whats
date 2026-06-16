@@ -13,6 +13,12 @@ const telegram = require('./telegram');
 
 // Canais de mensagens suportados pelo gateway
 const SUPPORTED_CHANNELS = ['whatsapp', 'telegram', 'facebook', 'instagram', 'x'];
+const STORE_LAYOUTS = new Set(['restaurant', 'ecommerce', 'fashion', 'market', 'beauty', 'electronics', 'services']);
+
+function normalizeStoreLayout(value) {
+  const layout = String(value || 'ecommerce').trim().toLowerCase();
+  return STORE_LAYOUTS.has(layout) ? layout : 'ecommerce';
+}
 
 const app = express();
 const PORT = process.env.PORT || 3060;
@@ -455,7 +461,7 @@ app.get('/api/admin/users', (req, res) => {
 
 // Admin: Create user
 app.post('/api/admin/users', (req, res) => {
-  const { username, password, tokensCount, expirationDate } = req.body;
+  const { username, password, tokensCount, expirationDate, storeName, storeBannerUrl, storeLogoUrl, storeLayout, status = 'active' } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: 'Username e senha são obrigatórios.' });
   }
@@ -474,7 +480,12 @@ app.post('/api/admin/users', (req, res) => {
     token: generatedToken,
     tokensCount: tokensCount !== undefined ? Number(tokensCount) : 1000,
     expirationDate: expirationDate || null,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    status,
+    storeName: storeName || username,
+    storeBannerUrl: storeBannerUrl || null,
+    storeLogoUrl: storeLogoUrl || null,
+    storeLayout: normalizeStoreLayout(storeLayout),
   });
 
   // Cria a pasta de sessão local do Baileys para o novo usuário desde o cadastro.
@@ -488,7 +499,7 @@ app.post('/api/admin/users', (req, res) => {
 // Admin: Edit user
 app.put('/api/admin/users/:id', (req, res) => {
   const { id } = req.params;
-  const { username, password, tokensCount, expirationDate } = req.body;
+  const { username, password, tokensCount, expirationDate, storeName, storeBannerUrl, storeLogoUrl, storeLayout, status } = req.body;
 
   if (!gateway.getUserById(id)) {
     return res.status(404).json({ error: 'Usuário não encontrado.' });
@@ -499,6 +510,11 @@ app.put('/api/admin/users/:id', (req, res) => {
   if (password) fields.password = password;
   if (tokensCount !== undefined) fields.tokensCount = Number(tokensCount);
   if (expirationDate !== undefined) fields.expirationDate = expirationDate || null;
+  if (storeName !== undefined) fields.storeName = storeName || null;
+  if (storeBannerUrl !== undefined) fields.storeBannerUrl = storeBannerUrl || null;
+  if (storeLogoUrl !== undefined) fields.storeLogoUrl = storeLogoUrl || null;
+  if (storeLayout !== undefined) fields.storeLayout = normalizeStoreLayout(storeLayout);
+  if (status !== undefined) fields.status = status;
 
   const updated = gateway.updateUser(id, fields);
   return res.json({ success: true, user: updated });
@@ -746,10 +762,9 @@ app.post('/api/send-message', async (req, res) => {
   }
 
   try {
-    const cleanPhone = to.replace(/\D/g, '') + '@s.whatsapp.net';
-    await session.socket.sendMessage(cleanPhone, { text: message });
-    logToSession(user.id, `Mensagem enviada com sucesso via Baileys para ${to}!`, 'success');
-    return res.json({ success: true, remainingTokens: user.tokensCount });
+    const delivery = await deliverMessage(user.id, to, 'whatsapp', { text: message });
+    logToSession(user.id, `Mensagem enviada com sucesso via Baileys para ${to} (destino ${delivery?.jid || to})!`, 'success');
+    return res.json({ success: true, jid: delivery?.jid || String(to), remainingTokens: user.tokensCount });
   } catch (err) {
     logToSession(user.id, `Falha física de envio via Baileys: ${err.message}`, 'error');
     return res.status(500).json({ error: err.message });
@@ -795,8 +810,22 @@ app.post('/api/auth/signup', (req, res) => {
     createdAt: new Date().toISOString(),
     status: 'pending',
     storeName: storeName || username,
+    storeLayout: 'ecommerce',
   });
   return res.json({ success: true, pending: true, message: 'Cadastro recebido! Sua loja será liberada após aprovação do administrador.' });
+});
+
+app.put('/api/user/profile', (req, res) => {
+  const user = userFromAuth(req);
+  if (!user) return res.status(401).json({ error: 'Token Bearer inválido.' });
+  const { storeName, storeBannerUrl, storeLogoUrl, storeLayout } = req.body || {};
+  const updated = gateway.updateUser(user.id, {
+    ...(storeName !== undefined ? { storeName: String(storeName || '').trim() || user.storeName || user.username } : {}),
+    ...(storeBannerUrl !== undefined ? { storeBannerUrl: String(storeBannerUrl || '').trim() || null } : {}),
+    ...(storeLogoUrl !== undefined ? { storeLogoUrl: String(storeLogoUrl || '').trim() || null } : {}),
+    ...(storeLayout !== undefined ? { storeLayout: normalizeStoreLayout(storeLayout) } : {}),
+  });
+  return res.json({ success: true, user: updated });
 });
 
 // Admin aprova / bloqueia uma loja.
@@ -815,17 +844,19 @@ app.post('/api/admin/users/:id/status', (req, res) => {
 
 // Operador assume o atendimento (pausa o bot) sem enviar mensagem.
 app.post('/api/bot/handoff', (req, res) => {
+  const user = userFromAuth(req);
   const { phone, channel } = req.body;
   if (!phone) return res.status(400).json({ error: 'phone é obrigatório.' });
-  const lead = botEngine.handoff(phone, channel);
+  const lead = botEngine.handoff(phone, channel, user?.id || req.body.userId || null);
   return res.json({ success: true, paused: true, lead });
 });
 
 // Confirma cadastro capturado pelo fluxo do bot na plataforma.
 app.post('/api/bot/register-lead', (req, res) => {
+  const user = userFromAuth(req);
   const { phone, channel, name, email } = req.body;
   if (!phone) return res.status(400).json({ error: 'phone é obrigatório.' });
-  const lead = botEngine.registerLead(phone, channel, { name, email });
+  const lead = botEngine.registerLead(phone, channel, { name, email }, user?.id || req.body.userId || null);
   if (!lead) return res.status(404).json({ error: 'Conversa não encontrada.' });
   return res.json({ success: true, lead });
 });
@@ -873,7 +904,7 @@ app.post('/api/bot/operator-send', async (req, res) => {
     return res.status(409).json({ error: `Canal ${channel} não conectado para este usuário.` });
   }
   try {
-    const result = await botEngine.operatorSend(phone, message, send, channel, operatorName);
+    const result = await botEngine.operatorSend(phone, message, send, channel, operatorName, userId);
     const jid = result.sendResult?.jid || String(phone);
     const providerMessageId = result.sendResult?.result?.key?.id || result.sendResult?.result?.messageID || null;
     logToSession(userId, `✅ [operador] enviado para ${phone} via ${channel} (destino ${jid}${providerMessageId ? `, id ${providerMessageId}` : ''}).`, 'success');
@@ -886,11 +917,12 @@ app.post('/api/bot/operator-send', async (req, res) => {
 
 // Encerra o atendimento humano -> reativa o bot e reseta a conversa (gratuito).
 app.post('/api/bot/close', async (req, res) => {
+  const user = userFromAuth(req);
   const { phone, channel } = req.body;
   try {
-    const found = botEngine.findLead(phone, channel);
+    const found = botEngine.findLead(phone, channel, user?.id || req.body.userId || null);
     const send = found ? makeSenderForLead(found) : null; // sem botSend => gratuito
-    const lead = await botEngine.closeService(phone, send, channel);
+    const lead = await botEngine.closeService(phone, send, channel, user?.id || req.body.userId || null);
     if (!lead) return res.status(404).json({ error: 'Conversa não encontrada.' });
     return res.json({ success: true, lead });
   } catch (err) {
@@ -962,6 +994,153 @@ app.post('/api/channels/:userId', async (req, res) => {
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
+});
+
+// ====================================================================
+//  CATÁLOGO MULTI-LOJA — produtos isolados por usuário/token do gateway
+// ====================================================================
+function mapProduct(row) {
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    codigo: row.codigo,
+    nome: row.nome,
+    descricao: row.descricao || '',
+    preco: Number(row.preco || 0),
+    foto_path: row.foto_path || '',
+    estoque: Number(row.estoque || 0),
+    has_shipping: !!row.has_shipping,
+    shipping_type: row.shipping_type || 'paid',
+    shipping_cost: Number(row.shipping_cost || 0),
+  };
+}
+
+function productPayload(body = {}) {
+  return {
+    codigo: String(body.codigo || '').trim(),
+    nome: String(body.nome || '').trim(),
+    descricao: String(body.descricao || '').trim(),
+    preco: Number(body.preco || 0),
+    foto_path: String(body.foto_path || '').trim(),
+    estoque: Math.max(0, Number(body.estoque || 0)),
+    has_shipping: body.has_shipping ? 1 : 0,
+    shipping_type: body.shipping_type === 'free' ? 'free' : 'paid',
+    shipping_cost: Number(body.shipping_cost || 0),
+  };
+}
+
+function slugifyStore(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+app.get('/api/store/:slug', (req, res) => {
+  const requested = slugifyStore(req.params.slug);
+  const user = gateway.listUsers().find((candidate) => {
+    if (candidate.status && candidate.status !== 'active') return false;
+    return slugifyStore(candidate.storeName || candidate.username) === requested
+      || slugifyStore(candidate.username) === requested;
+  });
+  if (!user) return res.status(404).json({ error: 'Loja não encontrada ou ainda não aprovada.' });
+
+  const rows = db.prepare('SELECT * FROM products WHERE owner_id = ? ORDER BY created_at DESC, id DESC').all(user.id);
+  const session = activeSessions.get(user.id);
+  return res.json({
+    success: true,
+    store: {
+      id: user.id,
+      username: user.username,
+      storeName: user.storeName || user.username,
+      bannerUrl: user.storeBannerUrl || null,
+      logoUrl: user.storeLogoUrl || null,
+      layout: normalizeStoreLayout(user.storeLayout),
+      slug: slugifyStore(user.storeName || user.username),
+      whatsappPhone: session?.phone || null,
+    },
+    products: rows.map(mapProduct),
+  });
+});
+
+app.get('/api/products', (req, res) => {
+  const user = userFromAuth(req);
+  if (!user) return res.status(401).json({ error: 'Token Bearer inválido.' });
+  const rows = db.prepare('SELECT * FROM products WHERE owner_id = ? ORDER BY created_at DESC, id DESC').all(user.id);
+  return res.json({ success: true, products: rows.map(mapProduct) });
+});
+
+app.post('/api/products', (req, res) => {
+  const user = userFromAuth(req);
+  if (!user) return res.status(401).json({ error: 'Token Bearer inválido.' });
+  const p = productPayload(req.body);
+  if (!p.codigo || !p.nome) return res.status(400).json({ error: 'Código e nome são obrigatórios.' });
+  try {
+    const info = db.prepare(
+      `INSERT INTO products
+        (owner_id, codigo, nome, descricao, preco, foto_path, estoque, has_shipping, shipping_type, shipping_cost)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(user.id, p.codigo, p.nome, p.descricao, p.preco, p.foto_path, p.estoque, p.has_shipping, p.shipping_type, p.shipping_cost);
+    const created = db.prepare('SELECT * FROM products WHERE id = ? AND owner_id = ?').get(info.lastInsertRowid, user.id);
+    return res.json({ success: true, product: mapProduct(created) });
+  } catch (err) {
+    const duplicate = /UNIQUE/i.test(err.message);
+    return res.status(duplicate ? 409 : 500).json({ error: duplicate ? 'Já existe produto com este código nesta loja.' : err.message });
+  }
+});
+
+app.put('/api/products/:id', (req, res) => {
+  const user = userFromAuth(req);
+  if (!user) return res.status(401).json({ error: 'Token Bearer inválido.' });
+  const { id } = req.params;
+  const current = db.prepare('SELECT * FROM products WHERE id = ? AND owner_id = ?').get(id, user.id);
+  if (!current) return res.status(404).json({ error: 'Produto não encontrado.' });
+  const p = productPayload({ ...current, ...req.body });
+  if (!p.codigo || !p.nome) return res.status(400).json({ error: 'Código e nome são obrigatórios.' });
+  try {
+    db.prepare(
+      `UPDATE products
+          SET codigo = ?, nome = ?, descricao = ?, preco = ?, foto_path = ?, estoque = ?,
+              has_shipping = ?, shipping_type = ?, shipping_cost = ?
+        WHERE id = ? AND owner_id = ?`
+    ).run(p.codigo, p.nome, p.descricao, p.preco, p.foto_path, p.estoque, p.has_shipping, p.shipping_type, p.shipping_cost, id, user.id);
+    const updated = db.prepare('SELECT * FROM products WHERE id = ? AND owner_id = ?').get(id, user.id);
+    return res.json({ success: true, product: mapProduct(updated) });
+  } catch (err) {
+    const duplicate = /UNIQUE/i.test(err.message);
+    return res.status(duplicate ? 409 : 500).json({ error: duplicate ? 'Já existe produto com este código nesta loja.' : err.message });
+  }
+});
+
+app.delete('/api/products/:id', (req, res) => {
+  const user = userFromAuth(req);
+  if (!user) return res.status(401).json({ error: 'Token Bearer inválido.' });
+  const info = db.prepare('DELETE FROM products WHERE id = ? AND owner_id = ?').run(req.params.id, user.id);
+  return res.json({ success: true, deleted: info.changes === 1 });
+});
+
+app.post('/api/products/decrement-stock', (req, res) => {
+  const user = userFromAuth(req);
+  if (!user) return res.status(401).json({ error: 'Token Bearer inválido.' });
+  const items = Array.isArray(req.body?.items) ? req.body.items : [{ id: req.body?.id, codigo: req.body?.codigo, quantidade: req.body?.quantidade }];
+  const updated = [];
+  const tx = db.transaction((rows) => {
+    for (const item of rows) {
+      const quantidade = Math.max(1, Number(item.quantidade || 1));
+      const product = item.id
+        ? db.prepare('SELECT * FROM products WHERE id = ? AND owner_id = ?').get(item.id, user.id)
+        : db.prepare('SELECT * FROM products WHERE codigo = ? AND owner_id = ?').get(item.codigo, user.id);
+      if (!product) continue;
+      const nextStock = Math.max(0, Number(product.estoque || 0) - quantidade);
+      db.prepare('UPDATE products SET estoque = ? WHERE id = ? AND owner_id = ?').run(nextStock, product.id, user.id);
+      updated.push(mapProduct({ ...product, estoque: nextStock }));
+    }
+  });
+  tx(items);
+  return res.json({ success: true, products: updated });
 });
 
 // Webhook genérico de entrada — Facebook, Instagram, X (e outros).

@@ -24,6 +24,23 @@ export interface SQLEmployee {
   criado_em: string;
 }
 
+export interface GatewayUser {
+  id: string;
+  username: string;
+  password?: string;
+  token?: string;
+  tokensCount?: number | null;
+  expirationDate?: string | null;
+  createdAt?: string;
+  status?: 'active' | 'pending' | 'blocked';
+  storeName?: string | null;
+  storeBannerUrl?: string | null;
+  storeLogoUrl?: string | null;
+  storeLayout?: StoreLayoutType | null;
+}
+
+export type StoreLayoutType = 'restaurant' | 'ecommerce' | 'fashion' | 'market' | 'beauty' | 'electronics' | 'services';
+
 export interface SQLProduct {
   id: string; // kept as string for react compatibility, mapped from integer
   codigo: string;
@@ -127,7 +144,23 @@ export interface FlowBlock {
   type: 'message_only' | 'options';
   optionType: 'numeric' | 'keyword';
   keywordMatchType?: 'exact' | 'contains'; // Match exact or contain
-  actionType?: 'none' | 'pause_bot' | 'clear_cart' | 'set_status_carrinho' | 'set_status_aguardando' | 'set_status_pago' | 'set_status_concluido';
+  actionType?:
+    | 'none'
+    | 'gateway_receive'
+    | 'lookup_product'
+    | 'send_product_card'
+    | 'add_pending_product_to_cart'
+    | 'show_catalog'
+    | 'show_cart'
+    | 'create_pix'
+    | 'open_storefront'
+    | 'register_lead'
+    | 'pause_bot'
+    | 'clear_cart'
+    | 'set_status_carrinho'
+    | 'set_status_aguardando'
+    | 'set_status_pago'
+    | 'set_status_concluido';
   options: FlowOption[];
   isStarting?: boolean;
   isGlobalTrigger?: boolean;

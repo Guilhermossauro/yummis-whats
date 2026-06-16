@@ -5,10 +5,11 @@ import { buildWhatsAppProductLink } from '../lib/productShare';
 
 interface CatalogProps {
   products: SQLProduct[];
-  onAddProduct: (product: Omit<SQLProduct, 'id'>) => void;
-  onEditProduct: (id: string, product: Partial<SQLProduct>) => void;
-  onDeleteProduct: (id: string) => void;
+  onAddProduct: (product: Omit<SQLProduct, 'id'>) => void | Promise<void>;
+  onEditProduct: (id: string, product: Partial<SQLProduct>) => void | Promise<void>;
+  onDeleteProduct: (id: string) => void | Promise<void>;
   gatewayPhone?: string | null;
+  storeSlug?: string;
 }
 
 const STOCK_IMAGES = [
@@ -20,7 +21,7 @@ const STOCK_IMAGES = [
   'https://images.unsplash.com/photo-1539252553119-a6e115520e5c?w=400&q=80'
 ];
 
-export default function AdminCatalog({ products, onAddProduct, onEditProduct, onDeleteProduct, gatewayPhone }: CatalogProps) {
+export default function AdminCatalog({ products, onAddProduct, onEditProduct, onDeleteProduct, gatewayPhone, storeSlug }: CatalogProps) {
   const [filterText, setFilterText] = useState('');
   const [sharedId, setSharedId] = useState<string | null>(null);
 
@@ -75,7 +76,7 @@ export default function AdminCatalog({ products, onAddProduct, onEditProduct, on
     setIsFormOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
@@ -115,13 +116,16 @@ export default function AdminCatalog({ products, onAddProduct, onEditProduct, on
       shipping_cost: hasShipping && shippingType === 'paid' ? parseFloat(shippingCost) || 0 : 0
     };
 
-    if (editingId) {
-      onEditProduct(editingId, payload);
-    } else {
-      onAddProduct(payload);
+    try {
+      if (editingId) {
+        await onEditProduct(editingId, payload);
+      } else {
+        await onAddProduct(payload);
+      }
+      setIsFormOpen(false);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Não foi possível salvar o produto.');
     }
-
-    setIsFormOpen(false);
   };
 
   const filteredProducts = products.filter(p =>
@@ -145,13 +149,26 @@ export default function AdminCatalog({ products, onAddProduct, onEditProduct, on
           />
         </div>
         
-        <button
-          onClick={openNewForm}
-          className="w-full sm:w-auto px-4 py-2.5 bg-indigo-650 hover:bg-indigo-500 transition-all rounded-xl text-xs font-bold text-white flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-indigo-950/20"
-        >
-          <Plus className="w-4 h-4" />
-          Cadastrar Produto
-        </button>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          {storeSlug && (
+            <a
+              href={`/store/${storeSlug}`}
+              target="_blank"
+              rel="noreferrer"
+              className="w-full sm:w-auto px-4 py-2.5 bg-purple-600 hover:bg-purple-500 transition-all rounded-xl text-xs font-bold text-white flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-purple-950/20"
+            >
+              <ShoppingBag className="w-4 h-4" />
+              Ver vitrine pública
+            </a>
+          )}
+          <button
+            onClick={openNewForm}
+            className="w-full sm:w-auto px-4 py-2.5 bg-indigo-650 hover:bg-indigo-500 transition-all rounded-xl text-xs font-bold text-white flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-indigo-950/20"
+          >
+            <Plus className="w-4 h-4" />
+            Cadastrar Produto
+          </button>
+        </div>
       </div>
 
       {/* Main product creation/edit form */}

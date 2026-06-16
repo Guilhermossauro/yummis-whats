@@ -24,23 +24,34 @@ CREATE TABLE IF NOT EXISTS users (
 -- 2. Produtos
 CREATE TABLE IF NOT EXISTS products (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    codigo VARCHAR(50) UNIQUE NOT NULL,
+    owner_id VARCHAR(64) DEFAULT 'user_1',
+    codigo VARCHAR(50) NOT NULL,
     nome VARCHAR(150) NOT NULL,
     descricao TEXT NULL,
     preco DECIMAL(10, 2) NOT NULL,
     foto_path VARCHAR(255) NULL,
     estoque INTEGER DEFAULT 0,
+    has_shipping INTEGER DEFAULT 0,
+    shipping_type VARCHAR(20) DEFAULT 'paid',
+    shipping_cost DECIMAL(10, 2) DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 3. Leads / Prospects no WhatsApp
 CREATE TABLE IF NOT EXISTS leads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    telefone VARCHAR(30) UNIQUE NOT NULL,
+    telefone VARCHAR(80) NOT NULL,
     nome VARCHAR(100) NOT NULL,
     status_funil VARCHAR(50) DEFAULT 'CARRINHO_ABERTO',
     ultimo_gatilho TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     bot_pausado INTEGER DEFAULT 0,
+    cadastrado INTEGER DEFAULT 0,
+    bot_step VARCHAR(60),
+    reminded INTEGER DEFAULT 0,
+    owner_id VARCHAR(64),
+    email VARCHAR(160),
+    last_activity VARCHAR(40),
+    channel VARCHAR(20) DEFAULT 'whatsapp',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -79,7 +90,10 @@ CREATE TABLE IF NOT EXISTS messages_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_products_codigo ON products(codigo);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_products_owner_codigo ON products(owner_id, codigo);
+CREATE INDEX IF NOT EXISTS idx_products_owner ON products(owner_id);
 CREATE INDEX IF NOT EXISTS idx_leads_telefone ON leads(telefone);
+CREATE INDEX IF NOT EXISTS idx_leads_owner_channel_phone ON leads(owner_id, channel, telefone);
 CREATE INDEX IF NOT EXISTS idx_leads_status_funil ON leads(status_funil);
 CREATE INDEX IF NOT EXISTS idx_carts_lead_id ON carts(lead_id);
 CREATE INDEX IF NOT EXISTS idx_orders_lead_id ON orders(lead_id);
@@ -104,6 +118,11 @@ CREATE TABLE IF NOT EXISTS gateway_users (
     token VARCHAR(120) UNIQUE NOT NULL,
     tokens_count INTEGER,
     expiration_date VARCHAR(40),
+    status VARCHAR(20) DEFAULT 'active',
+    store_name VARCHAR(150),
+    store_banner_url TEXT,
+    store_logo_url TEXT,
+    store_layout VARCHAR(40) DEFAULT 'ecommerce',
     created_at VARCHAR(40)
 );
 

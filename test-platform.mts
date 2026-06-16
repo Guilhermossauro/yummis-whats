@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { processBotMessage, BotState } from './src/lib/botProcessor';
 import { FlowBlock } from './src/types';
-import { buildProductInterestText, buildWhatsAppProductLink } from './src/lib/productShare';
+import { buildProductInterestText, buildStoreCartInterestText, buildWhatsAppProductLink } from './src/lib/productShare';
 
 const products = [
   {
@@ -63,8 +63,10 @@ function runCorrectionFlow() {
 
   result = step('sim', state);
   state = result.nextState;
-  assert.equal(state.step, 'handoff');
-  assert.equal(result.action, 'pause_bot');
+  assert.equal(state.step, 'menu');
+  assert.equal(state.flowBlockId, 'adicionar_carrinho');
+  assert.equal(result.action, undefined);
+  assert.equal(result.effects?.some(effect => effect.type === 'add_to_cart'), true);
 }
 
 function runRegisteredLeadFlow() {
@@ -92,6 +94,21 @@ function runShareLinkTest() {
   const link = buildWhatsAppProductLink(products[0], '+55 (11) 99999-9999');
   assert.ok(link.startsWith('https://wa.me/5511999999999?text='));
   assert.match(decodeURIComponent(link), /#YMS:VST001/);
+
+  const cartText = buildStoreCartInterestText([{ product: products[0], quantity: 2 }], 'Moda Express');
+  assert.match(cartText, /#YMS_CART:VST001x2/);
+}
+
+function runStoreCartFlow() {
+  let result = step('Olá! Quero comprar:\n#YMS_CART:VST001x2', undefined, true);
+  assert.equal(result.nextState.step, 'confirm_cart');
+  assert.match(result.replies[0].type === 'text' ? result.replies[0].text : '', /Total estimado/i);
+
+  result = step('sim', result.nextState, true);
+  assert.equal(result.nextState.step, 'menu');
+  const effect = result.effects?.find(item => item.type === 'add_to_cart');
+  assert.equal(effect?.type, 'add_to_cart');
+  assert.equal(effect?.data.quantidade, 2);
 }
 
 function runConfiguredCrmFlowTest() {
@@ -129,6 +146,7 @@ runCorrectionFlow();
 runRegisteredLeadFlow();
 runThreeErrorsFlow();
 runShareLinkTest();
+runStoreCartFlow();
 runConfiguredCrmFlowTest();
 
-console.log('✅ Fluxo guiado, fluxo configurado no CRM, correção de dados, handoff e link WhatsApp validados.');
+console.log('✅ Fluxo guiado, carrinho da vitrine, fluxo CRM, correção de dados, handoff por erro e links WhatsApp validados.');

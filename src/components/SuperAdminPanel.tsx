@@ -14,9 +14,10 @@ import {
   Sliders, 
   LogOut, 
   Save, 
-  AlertTriangle 
+  AlertTriangle,
+  RefreshCw
 } from 'lucide-react';
-import { SQLSeller } from '../types';
+import { SQLSeller, GatewayUser } from '../types';
 
 interface SuperAdminProps {
   sellers: SQLSeller[];
@@ -26,6 +27,9 @@ interface SuperAdminProps {
   onDeleteSeller: (id: string) => void;
   onUpdateLimit: (limit: number) => void;
   onLogout: () => void;
+  gatewayUsers?: GatewayUser[];
+  onRefreshGatewayUsers?: () => void;
+  onSetGatewayUserStatus?: (id: string, status: 'active' | 'pending' | 'blocked') => void;
 }
 
 export default function SuperAdminPanel({
@@ -35,7 +39,10 @@ export default function SuperAdminPanel({
   onEditSeller,
   onDeleteSeller,
   onUpdateLimit,
-  onLogout
+  onLogout,
+  gatewayUsers = [],
+  onRefreshGatewayUsers,
+  onSetGatewayUserStatus
 }: SuperAdminProps) {
   
   const [newName, setNewName] = useState('');
@@ -163,6 +170,71 @@ export default function SuperAdminPanel({
           {notif.text}
         </motion.div>
       )}
+
+      <div className="bg-slate-900/60 border border-white/10 rounded-3xl p-6 backdrop-blur-md">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-xs font-extrabold text-white uppercase tracking-wider flex items-center gap-1.5 font-sans">
+              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              Lojas do Gateway
+            </h3>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Cadastros criados pela tela inicial ficam pendentes até a aprovação do administrador.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onRefreshGatewayUsers}
+            className="px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-900 border border-white/10 text-xs text-slate-300 flex items-center gap-1.5"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Atualizar
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {[...gatewayUsers]
+            .sort((a, b) => (a.status === 'pending' ? -1 : 1) - (b.status === 'pending' ? -1 : 1))
+            .map(user => (
+              <div key={user.id} className="bg-slate-950/70 border border-white/5 rounded-2xl p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-white truncate">{user.storeName || user.username}</p>
+                    <p className="text-[10px] text-slate-500 truncate">{user.username}</p>
+                  </div>
+                  <span className={`text-[8px] uppercase font-bold px-2 py-0.5 rounded-full border ${
+                    user.status === 'pending'
+                      ? 'bg-amber-950/50 text-amber-300 border-amber-500/20'
+                      : user.status === 'blocked'
+                        ? 'bg-rose-950/50 text-rose-300 border-rose-500/20'
+                        : 'bg-emerald-950/50 text-emerald-300 border-emerald-500/20'
+                  }`}>
+                    {user.status === 'pending' ? 'Aguardando' : user.status === 'blocked' ? 'Bloqueada' : 'Aprovada'}
+                  </span>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onSetGatewayUserStatus?.(user.id, 'active')}
+                    className="flex-1 px-2 py-1.5 rounded-lg bg-emerald-950/50 hover:bg-emerald-900 text-emerald-300 text-[10px] font-bold border border-emerald-500/10 flex items-center justify-center gap-1"
+                  >
+                    <Check className="w-3 h-3" />
+                    Aprovar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onSetGatewayUserStatus?.(user.id, 'blocked')}
+                    className="flex-1 px-2 py-1.5 rounded-lg bg-rose-950/50 hover:bg-rose-900 text-rose-300 text-[10px] font-bold border border-rose-500/10 flex items-center justify-center gap-1"
+                  >
+                    <X className="w-3 h-3" />
+                    Bloquear
+                  </button>
+                </div>
+              </div>
+            ))}
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         

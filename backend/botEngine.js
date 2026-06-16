@@ -44,10 +44,17 @@ function whatsappAddressCandidates(address, channel = 'whatsapp') {
 //  Leads + mensagens (somente armazenamento; sem lógica de fluxo)
 // ------------------------------------------------------------------
 const leadRepo = {
-  byAddress(address, channel = 'whatsapp') {
+  byAddress(address, channel = 'whatsapp', ownerId = null) {
     for (const candidate of whatsappAddressCandidates(address, channel)) {
-      const found = db.prepare('SELECT * FROM leads WHERE telefone = ? AND channel = ?').get(candidate, channel);
+      const found = ownerId
+        ? db.prepare('SELECT * FROM leads WHERE telefone = ? AND channel = ? AND owner_id = ?').get(candidate, channel, ownerId)
+        : db.prepare('SELECT * FROM leads WHERE telefone = ? AND channel = ?').get(candidate, channel);
       if (found) return found;
+
+      if (ownerId) {
+        const legacy = db.prepare('SELECT * FROM leads WHERE telefone = ? AND channel = ? AND owner_id IS NULL').get(candidate, channel);
+        if (legacy) return legacy;
+      }
     }
     return null;
   },
@@ -77,9 +84,9 @@ function persistMessage(leadId, direcao, texto, channel = 'whatsapp') {
   return db.prepare('SELECT * FROM messages_log WHERE id = ?').get(info.lastInsertRowid);
 }
 
-function findLead(address, channel) {
-  if (channel) return leadRepo.byAddress(normalizeAddress(address, channel), channel);
-  return leadRepo.byAddress(normalizeAddress(address, 'whatsapp'), 'whatsapp')
+function findLead(address, channel, ownerId = null) {
+  if (channel) return leadRepo.byAddress(normalizeAddress(address, channel), channel, ownerId);
+  return leadRepo.byAddress(normalizeAddress(address, 'whatsapp'), 'whatsapp', ownerId)
     || leadRepo.byAddressAnyChannel(String(address).trim());
 }
 
@@ -91,7 +98,7 @@ function recordIncoming({ ownerId, channel = 'whatsapp', address, name, text }) 
   const addr = normalizeAddress(address, channel);
   if (!addr || !text) return null;
 
-  let lead = leadRepo.byAddress(addr, channel);
+  let lead = leadRepo.byAddress(addr, channel, ownerId);
   if (!lead) lead = leadRepo.create(addr, ownerId, channel, name);
 
   persistMessage(lead.id, 'in', text, channel);
@@ -110,7 +117,7 @@ function recordIncoming({ ownerId, channel = 'whatsapp', address, name, text }) 
 // ------------------------------------------------------------------
 function recordOutgoing(address, channel, text, ownerId, prefix = '') {
   const addr = normalizeAddress(address, channel);
-  let lead = leadRepo.byAddress(addr, channel);
+  let lead = leadRepo.byAddress(addr, channel, ownerId);
   if (!lead) lead = leadRepo.create(addr, ownerId, channel);
   const message = persistMessage(lead.id, 'out', prefix + text, channel);
   leadRepo.update(lead.id, { last_activity: nowISO() });
@@ -120,14 +127,14 @@ function recordOutgoing(address, channel, text, ownerId, prefix = '') {
 // ------------------------------------------------------------------
 //  Estado de atendimento humano (handoff / encerrar)
 // ------------------------------------------------------------------
-function handoff(address, channel) {
-  const lead = findLead(address, channel);
+function handoff(address, channel, ownerId = null) {
+  const lead = findLead(address, channel, ownerId);
   if (lead) leadRepo.update(lead.id, { bot_pausado: 1 });
   return lead;
 }
 
-function registerLead(address, channel, data = {}) {
-  const lead = findLead(address, channel);
+function registerLead(address, channel, data = {}, ownerId = null) {
+  const lead = findLead(address, channel, ownerId);
   if (!lead) return null;
   leadRepo.update(lead.id, {
     cadastrado: 1,
@@ -135,11 +142,11 @@ function registerLead(address, channel, data = {}) {
     email: data.email || lead.email || null,
     last_activity: nowISO(),
   });
-  return findLead(address, channel);
+  return findLead(address, channel, ownerId);
 }
 
-async function closeService(address, send, channel) {
-  const lead = findLead(address, channel);
+async function closeService(address, send, channel, ownerId = null) {
+  const lead = findLead(address, channel, ownerId);
   if (!lead) return null;
   leadRepo.update(lead.id, { bot_pausado: 0, last_activity: nowISO() });
   if (send) {
@@ -151,10 +158,10 @@ async function closeService(address, send, channel) {
 }
 
 // Operador envia mensagem manual -> pausa o bot (assume atendimento). GRATUITO.
-async function operatorSend(address, text, send, channel = 'whatsapp', operatorName = 'Atendente') {
+async function operatorSend(address, text, send, channel = 'whatsapp', operatorName = 'Atendente', ownerId = null) {
   const addr = normalizeAddress(address, channel);
-  let lead = leadRepo.byAddress(addr, channel);
-  if (!lead) lead = leadRepo.create(addr, null, channel);
+  let lead = leadRepo.byAddress(addr, channel, ownerId);
+  if (!lead) lead = leadRepo.create(addr, ownerId, channel);
   leadRepo.update(lead.id, { bot_pausado: 1, last_activity: nowISO() });
   const operatorText = `*${operatorName}*\n${text}`;
   const sendResult = await send(operatorText);

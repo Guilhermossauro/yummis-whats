@@ -14,27 +14,45 @@ import {
   Zap, 
   Layers, 
   ArrowRight,
-  Info 
+  Info,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 import { FlowBlock, FlowOption } from '../types';
-import { DEFAULT_FLOW } from '../data/flows';
+import { ACTION_META, DEFAULT_FLOW, normalizeFlowBlocks } from '../data/flows';
+
+const DEFAULT_NODE_POSITIONS: { [id: string]: { x: number; y: number } } = {
+  boas_vindas: { x: 20, y: 70 },
+  catalogo: { x: 280, y: 25 },
+  link_produto: { x: 560, y: 25 },
+  cadastro_cliente: { x: 840, y: 25 },
+  confirmar_produto: { x: 1120, y: 25 },
+  adicionar_carrinho: { x: 1400, y: 110 },
+  carrinho: { x: 280, y: 270 },
+  vitrine_publica: { x: 560, y: 270 },
+  link_carrinho_loja: { x: 840, y: 270 },
+  faturamento: { x: 1120, y: 300 },
+  suporte: { x: 1120, y: 520 },
+  limpar_sacola: { x: 560, y: 520 },
+};
 
 export default function BotFlowBuilder() {
   const [blocks, setBlocks] = useState<FlowBlock[]>(() => {
     const saved = localStorage.getItem('sql_bot_flow');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        return normalizeFlowBlocks(JSON.parse(saved));
       } catch (e) {
         console.error('Falha ao ler fluxo do banco do bot', e);
       }
     }
-    return [...DEFAULT_FLOW];
+    return normalizeFlowBlocks(DEFAULT_FLOW);
   });
 
   const [selectedBlockId, setSelectedBlockId] = useState<string>('boas_vindas');
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [notif, setNotif] = useState('');
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Node positions matching for visual drag and drop
   const [nodePositions, setNodePositions] = useState<{ [id: string]: { x: number; y: number } }>(() => {
@@ -46,14 +64,7 @@ export default function BotFlowBuilder() {
         // Fall through
       }
     }
-    return {
-      boas_vindas: { x: 20, y: 50 },
-      catalogo: { x: 260, y: 15 },
-      carrinho: { x: 260, y: 220 },
-      faturamento: { x: 500, y: 15 },
-      suporte: { x: 500, y: 220 },
-      limpar_sacola: { x: 740, y: 120 }
-    };
+    return DEFAULT_NODE_POSITIONS;
   });
 
   useEffect(() => {
@@ -65,8 +76,10 @@ export default function BotFlowBuilder() {
   const handleCanvasMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!draggingNode) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = Math.max(10, Math.min(e.clientX - rect.left - draggingNode.offsetX, 1100));
-    const y = Math.max(10, Math.min(e.clientY - rect.top - draggingNode.offsetY, 275));
+    const xLimit = isFullscreen ? 1650 : 1500;
+    const yLimit = isFullscreen ? 760 : 560;
+    const x = Math.max(10, Math.min(e.clientX - rect.left - draggingNode.offsetX, xLimit));
+    const y = Math.max(10, Math.min(e.clientY - rect.top - draggingNode.offsetY, yLimit));
     setNodePositions(prev => ({
       ...prev,
       [draggingNode.id]: { x, y }
@@ -83,6 +96,7 @@ export default function BotFlowBuilder() {
   }, [blocks]);
 
   const activeBlock = blocks.find(b => b.id === selectedBlockId) || blocks[0];
+  const activeAction = ACTION_META[activeBlock.actionType || 'none'] || ACTION_META.none;
 
   const triggerNotif = (msg: string) => {
     setNotif(msg);
@@ -115,8 +129,9 @@ export default function BotFlowBuilder() {
   // Reset to default e-commerce flow
   const handleResetToDefault = () => {
     if (window.confirm('Tem certeza que deseja restaurar o fluxo de mensagens padrão da loja? Todas as modificações locais serão apagadas.')) {
-      setBlocks(JSON.parse(JSON.stringify(DEFAULT_FLOW)));
+      setBlocks(normalizeFlowBlocks(JSON.parse(JSON.stringify(DEFAULT_FLOW))));
       setSelectedBlockId('boas_vindas');
+      setNodePositions(DEFAULT_NODE_POSITIONS);
       triggerNotif('Fluxo redefinido para o padrão da loja com sucesso!');
     }
   };
@@ -224,7 +239,10 @@ export default function BotFlowBuilder() {
   };
 
   return (
-    <div className="space-y-6" id="bot-flow-workspace">
+    <div
+      className={`${isFullscreen ? 'fixed inset-0 z-[9999] overflow-y-auto bg-slate-950 p-4 md:p-6' : ''} space-y-6`}
+      id="bot-flow-workspace"
+    >
       
       {/* Header section with instructions & actions */}
       <div className="bg-slate-900/40 backdrop-blur-md border border-white/10 rounded-2xl p-5 shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -238,6 +256,14 @@ export default function BotFlowBuilder() {
           </p>
         </div>
         <div className="flex gap-2.5">
+          <button
+            onClick={() => setIsFullscreen(prev => !prev)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-500 transition-all rounded-xl text-xs font-bold text-white cursor-pointer"
+          >
+            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            {isFullscreen ? 'Sair da Tela Cheia' : 'Ver em Tela Cheia'}
+          </button>
+
           <button
             onClick={handleAddBlock}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-650 hover:bg-indigo-500 transition-all rounded-xl text-xs font-bold text-white cursor-pointer"
@@ -377,11 +403,11 @@ export default function BotFlowBuilder() {
                 <input
                   type="text"
                   value={activeBlock.id}
-                  disabled={activeBlock.id === 'boas_vindas' || activeBlock.id === 'catalogo' || activeBlock.id === 'carrinho' || activeBlock.id === 'faturamento' || activeBlock.id === 'suporte'}
+                  disabled={!!DEFAULT_NODE_POSITIONS[activeBlock.id]}
                   onChange={(e) => updateActiveBlock({ id: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') })}
                   className="w-full bg-slate-950/60 border border-white/5 rounded-xl py-2 px-3 text-xs text-slate-400 font-mono disabled:opacity-50 disabled:cursor-not-allowed"
                   placeholder="identificador_do_bloco"
-                  title={activeBlock.id === 'boas_vindas' ? "Blocos reservados de sistema não podem mudar ID" : ""}
+                  title={DEFAULT_NODE_POSITIONS[activeBlock.id] ? "Blocos reservados de sistema não podem mudar ID" : ""}
                 />
               </div>
             </div>
@@ -456,14 +482,43 @@ export default function BotFlowBuilder() {
                   onChange={(e) => updateActiveBlock({ actionType: e.target.value as any })}
                   className="w-full bg-slate-950 border border-white/10 rounded-xl py-2 px-3 text-xs text-indigo-400 cursor-pointer"
                 >
-                  <option value="none">⚙️ Nenhuma Ação Adicional</option>
-                  <option value="pause_bot">👨‍💻 Transferir p/ Suporte Humano (Pausa Automação)</option>
-                  <option value="clear_cart">🧹 Esvaziar / Resetar Sacola de Compras</option>
-                  <option value="set_status_carrinho">👗 Alterar Leads para CARRINHO_ABERTO</option>
-                  <option value="set_status_aguardando">⏳ Alterar Leads para AGUARDANDO_PIX</option>
-                  <option value="set_status_pago">🎉 Alterar Leads para PAGO (Faturamento Concluído)</option>
+                  {Object.entries(ACTION_META).map(([key, meta]) => (
+                    <option key={key} value={key}>{meta.label}</option>
+                  ))}
                 </select>
-                <span className="text-[9px] text-slate-500 block leading-tight">Gatilhos adicionais que alteram estados do lead quando o fluxo avança até aqui.</span>
+                <span className="text-[9px] text-slate-500 block leading-tight">{activeAction.description}</span>
+              </div>
+
+              <label className="flex items-start gap-2 bg-slate-950/60 border border-white/5 rounded-xl p-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!activeBlock.isGlobalTrigger}
+                  onChange={(e) => updateActiveBlock({ isGlobalTrigger: e.target.checked })}
+                  className="mt-0.5 accent-indigo-500"
+                />
+                <span>
+                  <span className="block text-[10px] font-bold text-slate-300 uppercase tracking-widest font-mono">
+                    Acionar fora do fluxo
+                  </span>
+                  <span className="block text-[9px] text-slate-500 leading-tight">
+                    Permite que palavras do bloco ou suas opções acionem esta etapa mesmo sem conversa aberta.
+                  </span>
+                </span>
+              </label>
+
+              <div className="sm:col-span-2 rounded-xl border border-purple-500/15 bg-purple-950/20 p-3">
+                <div className="flex items-center gap-2 text-[10px] font-extrabold uppercase tracking-widest text-purple-200 font-mono">
+                  <Zap className="w-3.5 h-3.5 text-purple-300" />
+                  Execução real deste bloco
+                </div>
+                <p className="mt-1 text-[11px] text-slate-300 leading-relaxed">{activeAction.description}</p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {activeAction.resources.map(resource => (
+                    <span key={resource} className="rounded-full border border-white/10 bg-slate-950/70 px-2 py-1 text-[9px] font-bold text-slate-300">
+                      {resource}
+                    </span>
+                  ))}
+                </div>
               </div>
 
             </div>
@@ -539,9 +594,14 @@ export default function BotFlowBuilder() {
                             disabled={activeBlock.optionType === 'numeric'}
                             onChange={(e) => handleUpdateOption(oIdx, { trigger: e.target.value })}
                             className="bg-slate-950 border border-white/5 rounded-lg py-1 px-1.5 text-xs text-white max-w-full font-mono font-bold text-center disabled:opacity-50"
-                            placeholder="ex: falar_atend"
+                            placeholder="catalogo,produtos,roupas"
                             title={activeBlock.optionType === 'numeric' ? "No modo numérico, o índice do menu é sequencial automático" : "Palavras chaves separadas por vírgula"}
                           />
+                          {activeBlock.optionType !== 'numeric' && (
+                            <span className="text-[8px] text-slate-550 leading-tight">
+                              Use vírgulas para sinônimos; o cliente vê só a descrição.
+                            </span>
+                          )}
                         </div>
 
                         {/* Label name */}
@@ -608,15 +668,7 @@ export default function BotFlowBuilder() {
           <button
             type="button"
             onClick={() => {
-              const defaults = {
-                boas_vindas: { x: 20, y: 50 },
-                catalogo: { x: 250, y: 15 },
-                carrinho: { x: 250, y: 220 },
-                faturamento: { x: 480, y: 15 },
-                suporte: { x: 480, y: 220 },
-                limpar_sacola: { x: 710, y: 120 }
-              };
-              setNodePositions(defaults);
+              setNodePositions(DEFAULT_NODE_POSITIONS);
               triggerNotif('Layout visual redefinido!');
             }}
             className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-950 hover:bg-slate-900 border border-white/10 hover:border-white/20 transition-all text-[9px] font-mono text-slate-400 hover:text-white rounded-lg cursor-pointer"
@@ -628,13 +680,13 @@ export default function BotFlowBuilder() {
 
         {/* The Connection Board canvas viewport */}
         <div 
-          className="relative w-full h-[380px] bg-slate-950 rounded-xl border border-white/5 overflow-x-auto overflow-y-hidden bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px] select-none"
+          className={`relative w-full ${isFullscreen ? 'h-[760px]' : 'h-[620px]'} bg-slate-950 rounded-xl border border-white/5 overflow-auto bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px] select-none`}
           onMouseMove={handleCanvasMouseMove}
           onMouseUp={handleCanvasMouseUp}
           onMouseLeave={handleCanvasMouseUp}
         >
           {/* SVG Connector Pathways */}
-          <svg className="absolute inset-0 w-full h-full pointer-events-none z-0 min-w-[950px]">
+          <svg className="absolute inset-0 w-full h-full pointer-events-none z-0 min-w-[1720px] min-h-[850px]">
             <defs>
               <marker 
                 id="flow-arrow" 
@@ -696,7 +748,7 @@ export default function BotFlowBuilder() {
           </svg>
 
           {/* Interactive Card Nodes */}
-          <div className="absolute inset-0 min-w-[950px] z-10 pointer-events-none">
+          <div className="absolute inset-0 min-w-[1720px] min-h-[850px] z-10 pointer-events-none">
             {blocks.map((block) => {
               const pos = nodePositions[block.id] || { x: 50, y: 50 };
               const isSelected = block.id === selectedBlockId;
@@ -746,7 +798,7 @@ export default function BotFlowBuilder() {
                   {block.actionType && block.actionType !== 'none' && (
                     <div className="mt-2 text-[7.5px] font-mono text-emerald-400 flex items-center gap-1 bg-emerald-950/30 border border-emerald-500/10 px-1.5 py-0.5 rounded leading-none shrink-0 w-max max-w-full">
                       <Zap className="w-2.5 h-2.5 shrink-0" />
-                      Ação: {block.actionType.replace('set_status_', '').replace('_', ' ').toUpperCase()}
+                      {ACTION_META[block.actionType || 'none']?.shortLabel || block.actionType}
                     </div>
                   )}
 

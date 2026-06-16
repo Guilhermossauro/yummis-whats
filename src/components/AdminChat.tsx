@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MessageSquare, Send, Bot, User, CornerDownLeft, RefreshCw, ShoppingCart, Power, ExternalLink, Play } from 'lucide-react';
-import { SQLLead, SQLMessageLog, SQLCart, SQLProduct, WhatsAppConfig } from '../types';
+import { SQLLead, SQLMessageLog, SQLCart, SQLProduct } from '../types';
 import { channelMeta } from '../lib/gateway';
 
 interface ChatProps {
@@ -8,7 +8,6 @@ interface ChatProps {
   messages: SQLMessageLog[];
   carts: SQLCart[];
   products: SQLProduct[];
-  whatsAppConfig: WhatsAppConfig;
   onSendManualMessage: (leadId: string, text: string) => void;
   onToggleBot: (leadId: string, paused: number) => void;
   onSimulateWebhook: (payload: any) => void;
@@ -19,7 +18,6 @@ export default function AdminChat({
   messages,
   carts,
   products,
-  whatsAppConfig,
   onSendManualMessage,
   onToggleBot,
   onSimulateWebhook
