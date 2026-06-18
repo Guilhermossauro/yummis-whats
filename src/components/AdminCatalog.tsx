@@ -10,6 +10,7 @@ interface CatalogProps {
   onDeleteProduct: (id: string) => void | Promise<void>;
   gatewayPhone?: string | null;
   storeSlug?: string;
+  storefrontEnabled?: boolean;
 }
 
 const STOCK_IMAGES = [
@@ -21,9 +22,12 @@ const STOCK_IMAGES = [
   'https://images.unsplash.com/photo-1539252553119-a6e115520e5c?w=400&q=80'
 ];
 
-export default function AdminCatalog({ products, onAddProduct, onEditProduct, onDeleteProduct, gatewayPhone, storeSlug }: CatalogProps) {
+export default function AdminCatalog({ products, onAddProduct, onEditProduct, onDeleteProduct, gatewayPhone, storeSlug, storefrontEnabled }: CatalogProps) {
   const [filterText, setFilterText] = useState('');
   const [sharedId, setSharedId] = useState<string | null>(null);
+  const publicStoreUrl = storeSlug
+    ? (typeof window !== 'undefined' ? `${window.location.origin}/store/${storeSlug}` : `/store/${storeSlug}`)
+    : '';
 
   const shareProduct = (p: SQLProduct) => {
     const link = buildWhatsAppProductLink(p, gatewayPhone);
@@ -179,9 +183,9 @@ export default function AdminCatalog({ products, onAddProduct, onEditProduct, on
         </div>
         
         <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-          {storeSlug && (
+          {storefrontEnabled && storeSlug && (
             <a
-              href={`/store/${storeSlug}`}
+              href={publicStoreUrl}
               target="_blank"
               rel="noreferrer"
               className="w-full sm:w-auto px-4 py-2.5 bg-purple-600 hover:bg-purple-500 transition-all rounded-xl text-xs font-bold text-white flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-purple-950/20"

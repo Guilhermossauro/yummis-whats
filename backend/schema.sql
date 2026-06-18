@@ -80,6 +80,14 @@ CREATE TABLE IF NOT EXISTS orders (
     FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS stock_operations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id VARCHAR(64) NOT NULL,
+    operation_key VARCHAR(120) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(owner_id, operation_key)
+);
+
 -- 6. Histórico Omnichannel de mensagens
 CREATE TABLE IF NOT EXISTS messages_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,6 +106,7 @@ CREATE INDEX IF NOT EXISTS idx_leads_owner_channel_phone ON leads(owner_id, chan
 CREATE INDEX IF NOT EXISTS idx_leads_status_funil ON leads(status_funil);
 CREATE INDEX IF NOT EXISTS idx_carts_lead_id ON carts(lead_id);
 CREATE INDEX IF NOT EXISTS idx_orders_lead_id ON orders(lead_id);
+CREATE INDEX IF NOT EXISTS idx_stock_operations_owner_key ON stock_operations(owner_id, operation_key);
 CREATE INDEX IF NOT EXISTS idx_messages_log_lead_id ON messages_log(lead_id);
 
 -- ------------------------------------------------------------------

@@ -39,6 +39,7 @@ import AdminVirtualStore from './components/AdminVirtualStore';
 import { SQLProduct, SQLLead, SQLCart, SQLOrder, SQLMessageLog, WhatsAppConfig, SQLSeller, SQLEmployee, FlowBlock, GatewayUser, StoreLayoutType, StorefrontConfig } from './types';
 import { getSendMessageURL, getGatewayBaseURL, isGatewayMode } from './lib/gateway';
 import { processBotMessage, BotProduct, BotState } from './lib/botProcessor';
+import { resolveOrderPaymentTransition } from './lib/orderPayment';
 import DashboardHome from './components/DashboardHome';
 import { normalizeFlowBlocks } from './data/flows';
 
@@ -73,6 +74,8 @@ export default function App() {
     const saved = localStorage.getItem('sql_lojista');
     return saved ? JSON.parse(saved) : null;
   });
+  const storefrontSlug = storeSlug(lojistaUser?.store_name || lojistaUser?.name || lojistaUser?.email || '') || 'loja';
+  const botFlowStorageKey = lojistaUser?.id ? `sql_bot_flow_${lojistaUser.id}` : 'sql_bot_flow';
 
   // 2. Tab selection
   const [activeTab, setActiveTab] = useState<'dashboard' | 'crm' | 'catalog' | 'storefront' | 'chat' | 'simulator' | 'settings' | 'sqlite' | 'customer_profiles' | 'flow'>('dashboard');
@@ -106,6 +109,9 @@ export default function App() {
   const [products, setProducts] = useState<SQLProduct[]>([]);
   const productsRef = useRef<SQLProduct[]>([]);
   const cartsRef = useRef<SQLCart[]>([]);
+  const leadsRef = useRef<SQLLead[]>([]);
+  const ordersRef = useRef<SQLOrder[]>([]);
+  const paymentLocksRef = useRef<Set<string>>(new Set());
 
   const [leads, setLeads] = useState<SQLLead[]>(() => {
     const saved = localStorage.getItem('sql_leads');
@@ -229,6 +235,14 @@ export default function App() {
     cartsRef.current = carts;
   }, [carts]);
 
+  useEffect(() => {
+    leadsRef.current = leads;
+  }, [leads]);
+
+  useEffect(() => {
+    ordersRef.current = orders;
+  }, [orders]);
+
   const activeGatewayToken = () => whatsAppConfig.apiKey || lojistaUser?.token || '';
   const gatewayJsonHeaders = () => ({
     'Content-Type': 'application/json',
@@ -250,7 +264,10 @@ export default function App() {
     refreshProductsFromGateway().catch((err) => console.warn('[Produtos] Falha ao sincronizar catálogo', err));
   }, [lojistaUser?.id, lojistaUser?.email, whatsAppConfig.apiKey]);
 
-  const decrementProductStock = async (items: Array<{ id?: string; codigo?: string; quantidade: number }>) => {
+  const decrementProductStock = async (
+    items: Array<{ id?: string; codigo?: string; quantidade: number }>,
+    operationKey?: string,
+  ) => {
     if (!items.length) return;
     const token = activeGatewayToken();
     if (token && lojistaUser?.email !== 'adminsuper@admin.com') {
@@ -258,10 +275,11 @@ export default function App() {
         const res = await fetch(`${getGatewayBaseURL()}/api/products/decrement-stock`, {
           method: 'POST',
           headers: gatewayJsonHeaders(),
-          body: JSON.stringify({ items }),
+          body: JSON.stringify({ items, operationKey }),
         });
         if (res.ok) {
           const data = await res.json();
+          if (data.applied === false) return;
           const updated: SQLProduct[] = data.products || [];
           if (updated.length) {
             setProducts(prev => prev.map(p => updated.find(u => String(u.id) === String(p.id)) || p));
@@ -319,6 +337,10 @@ export default function App() {
   const firstSyncRef = useRef<boolean>(true);
   // Número do WhatsApp conectado (para gerar links wa.me compartilháveis).
   const [gatewayPhone, setGatewayPhone] = useState<string | null>(null);
+  // Vitrine virtual: só aparece a opção de compartilhar/editar se o super admin liberou.
+  const [storefront, setStorefront] = useState<{ enabled: boolean; slug: string | null; storeName: string | null }>(
+    { enabled: false, slug: null, storeName: null }
+  );
 
   useEffect(() => {
     if (!isGatewayMode(whatsAppConfig.mode) || !whatsAppConfig.apiKey) return;
@@ -326,10 +348,14 @@ export default function App() {
     const base = getGatewayBaseURL();
     const token = whatsAppConfig.apiKey;
 
-    // Descobre o número conectado para montar os links compartilháveis.
+    // Descobre o número conectado + autorização da vitrine (super admin).
     fetch(`${base}/api/me`, { headers: { 'Authorization': `Bearer ${token}` } })
       .then(r => (r.ok ? r.json() : null))
-      .then(d => { if (alive && d?.whatsapp?.phone) setGatewayPhone(d.whatsapp.phone); })
+      .then(d => {
+        if (!alive || !d) return;
+        if (d.whatsapp?.phone) setGatewayPhone(d.whatsapp.phone);
+        setStorefront({ enabled: !!d.storefrontEnabled, slug: d.storeSlug || null, storeName: d.storeName || null });
+      })
       .catch(() => {});
 
     // Produtos atuais da plataforma (para o catálogo do bot e o card com foto)
@@ -342,8 +368,19 @@ export default function App() {
 
     const readFlow = (): FlowBlock[] => {
       try {
-        return normalizeFlowBlocks(JSON.parse(localStorage.getItem('sql_bot_flow') || '[]'));
+        const stored = localStorage.getItem(botFlowStorageKey) ?? localStorage.getItem('sql_bot_flow') ?? '[]';
+        return normalizeFlowBlocks(JSON.parse(stored));
       } catch { return normalizeFlowBlocks([]); }
+    };
+
+    const readCartItems = (leadId: string) => {
+      return cartsRef.current
+        .filter(item => item.lead_id === leadId)
+        .map((item) => {
+          const product = productsRef.current.find(p => p.id === item.product_id);
+          return product ? { codigo: product.codigo, quantidade: item.quantidade } : null;
+        })
+        .filter(Boolean) as Array<{ codigo: string; quantidade: number }>;
     };
 
     const readCartSummary = (leadId: string) => {
@@ -369,6 +406,8 @@ export default function App() {
         registered: !!m.cadastrado,
         flowBlocks: readFlow(),
         cartSummaryText: readCartSummary(stateKey),
+        cartItems: readCartItems(stateKey),
+        storeLink: `${window.location.origin}/store/${storefrontSlug}`,
       });
       botStateRef.current[stateKey] = result.nextState;
       localStorage.setItem('gw_bot_state', JSON.stringify(botStateRef.current));
@@ -426,13 +465,6 @@ export default function App() {
           status_funil: statusEffect.data.status,
           ultimo_gatilho: new Date().toISOString(),
         } : l));
-      }
-
-      // Efeito de COMPRA CONFIRMADA: baixa o estoque do produto no catálogo.
-      const stockEffect = result.effects?.find((effect) => effect.type === 'decrement_stock');
-      if (stockEffect && stockEffect.type === 'decrement_stock') {
-        const { codigo, quantidade } = stockEffect.data;
-        await decrementProductStock([{ codigo, quantidade }]);
       }
 
       // Ação de handoff: pausa o bot no gateway (atendente assume)
@@ -589,7 +621,7 @@ export default function App() {
     sync();
     const timer = setInterval(sync, 1500);
     return () => { alive = false; clearInterval(timer); };
-  }, [whatsAppConfig.mode, whatsAppConfig.apiKey]);
+  }, [whatsAppConfig.mode, whatsAppConfig.apiKey, botFlowStorageKey, storefrontSlug]);
 
   // Sellers and staff accounts limit state
   const [sellers, setSellers] = useState<SQLSeller[]>(() => {
@@ -1072,15 +1104,34 @@ export default function App() {
     setLeads(prev => prev.map(l => l.id === leadId ? { ...l, ultimo_gatilho: new Date().toISOString() } : l));
   };
 
-  const handleConfirmOrderPayment = (leadId: string) => {
-    const paidItems = carts
-      .filter(c => c.lead_id === leadId)
-      .map(c => ({ id: c.product_id, quantidade: c.quantidade }));
-    decrementProductStock(paidItems).catch((err) => console.warn('[Produtos] Falha ao baixar estoque da compra', err));
-    setOrders(prev => prev.map(o => o.lead_id === leadId ? { ...o, status_pagamento: 'PAGO' } : o));
-    setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status_funil: 'PAGO', ultimo_gatilho: new Date().toISOString() } : l));
-    // Clear cart once order paid
-    setCarts(prev => prev.filter(c => c.lead_id !== leadId));
+  const handleConfirmOrderPayment = async (leadId: string) => {
+    if (paymentLocksRef.current.has(leadId)) return;
+
+    const paidAt = new Date().toISOString();
+    const resolution = resolveOrderPaymentTransition(leadId, ordersRef.current, leadsRef.current, cartsRef.current, paidAt);
+    const pendingOrderKeys = ordersRef.current
+      .filter(order => order.lead_id === leadId && order.status_pagamento !== 'PAGO')
+      .map(order => order.transaction_id || order.id)
+      .sort();
+
+    paymentLocksRef.current.add(leadId);
+    ordersRef.current = resolution.nextOrders;
+    leadsRef.current = resolution.nextLeads;
+    cartsRef.current = resolution.nextCarts;
+    setOrders(resolution.nextOrders);
+    setLeads(resolution.nextLeads);
+    setCarts(resolution.nextCarts);
+
+    try {
+      if (resolution.shouldDecrementStock) {
+        const operationKey = `order-paid:${leadId}:${pendingOrderKeys.join(',')}`;
+        await decrementProductStock(resolution.paidItems, operationKey);
+      }
+    } catch (err) {
+      console.warn('[Produtos] Falha ao baixar estoque da compra', err);
+    } finally {
+      paymentLocksRef.current.delete(leadId);
+    }
   };
 
   const handleTriggerInactivityRecovery = (hours: 24 | 48) => {
@@ -1114,20 +1165,21 @@ export default function App() {
   };
 
   // Navegação lateral (estilo Cross Admin). O Dashboard é a tela de métricas.
-  const NAV = [
+  // A "Loja Virtual" (vitrine) só aparece se o super admin autorizou a loja.
+  const NAV = ([
     { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { key: 'simulator', label: 'Simulador', icon: Smartphone },
     { key: 'crm', label: 'Funil de Vendas', icon: TrendingUp },
     { key: 'chat', label: 'Chat Omnichannel', icon: MessageSquare },
     { key: 'flow', label: 'Fluxo do Bot', icon: Settings },
     { key: 'catalog', label: 'Catálogo', icon: ShoppingBag },
-    { key: 'storefront', label: 'Loja Virtual', icon: Store },
+    ...(storefront.enabled ? [{ key: 'storefront', label: 'Loja Virtual', icon: Store }] : []),
     { key: 'settings', label: 'Conexões & Conta', icon: Wifi },
     { key: 'customer_profiles', label: 'Perfis de Clientes', icon: User },
-  ] as const;
+  ]) as { key: string; label: string; icon: any }[];
   const activeNav = NAV.find(n => n.key === activeTab);
   const openStoreEditor = () => {
-    const slug = storeSlug(lojistaUser?.store_name || storeEditorMatch?.[1] || 'loja') || 'loja';
+    const slug = storeSlug(lojistaUser?.store_name || lojistaUser?.name || lojistaUser?.email || storeEditorMatch?.[1] || 'loja') || 'loja';
     navigatePath(`/editor/loja/${slug}`);
     setShowNotifications(false);
     setShowProfileMenu(false);
@@ -1143,7 +1195,7 @@ export default function App() {
         standalone
         lojista={lojistaUser}
         products={products}
-        storeSlug={storeSlug(lojistaUser?.store_name || storeEditorMatch[1] || '')}
+        storeSlug={storeSlug(lojistaUser?.store_name || lojistaUser?.name || lojistaUser?.email || storeEditorMatch[1] || '')}
         onUpdateStorefront={handleUpdateStorefront}
         onBack={() => {
           setActiveTab('dashboard');
@@ -1430,6 +1482,8 @@ export default function App() {
                   onSetBotPaused={handleToggleBot}
                   onConfirmOrderPayment={handleConfirmOrderPayment}
                   onTriggerInactivityRecovery={handleTriggerInactivityRecovery}
+                  botFlowStorageKey={botFlowStorageKey}
+                  storeLink={`${window.location.origin}/store/${storefrontSlug}`}
                 />
               </div>
             )}
@@ -1458,7 +1512,7 @@ export default function App() {
             )}
 
             {activeTab === 'flow' && (
-              <BotFlowBuilder />
+              <BotFlowBuilder storageKey={botFlowStorageKey} />
             )}
 
             {activeTab === 'catalog' && (
@@ -1468,7 +1522,8 @@ export default function App() {
                 onEditProduct={handleEditProduct}
                 onDeleteProduct={handleDeleteProduct}
                 gatewayPhone={gatewayPhone}
-                storeSlug={storeSlug(lojistaUser?.store_name || '')}
+                storeSlug={storefront.slug || storefrontSlug}
+                storefrontEnabled={storefront.enabled}
               />
             )}
 
@@ -1499,6 +1554,7 @@ export default function App() {
                 onAddEmployee={handleAddEmployee}
                 onEditEmployee={handleEditEmployee}
                 onDeleteEmployee={handleDeleteEmployee}
+                botFlowStorageKey={botFlowStorageKey}
               />
             )}
 

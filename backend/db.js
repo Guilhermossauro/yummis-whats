@@ -46,6 +46,8 @@ ensureColumn('messages_log', 'bot_processed', 'bot_processed INTEGER DEFAULT 0')
 // Cadastro de loja com aprovação do administrador (status active = liberado)
 ensureColumn('gateway_users', 'status', "status VARCHAR(20) DEFAULT 'active'");    // active | pending | blocked
 ensureColumn('gateway_users', 'store_name', 'store_name VARCHAR(150)');            // nome da loja
+ensureColumn('gateway_users', 'store_slug', 'store_slug VARCHAR(150)');            // rota canônica /store/<slug>
+ensureColumn('gateway_users', 'storefront_enabled', 'storefront_enabled INTEGER DEFAULT 0'); // super admin libera a vitrine
 ensureColumn('gateway_users', 'store_banner_url', 'store_banner_url TEXT');        // banner público da vitrine
 ensureColumn('gateway_users', 'store_logo_url', 'store_logo_url TEXT');            // logo pública da vitrine
 ensureColumn('products', 'owner_id', "owner_id VARCHAR(64) DEFAULT 'user_1'");     // loja dona do catálogo
@@ -158,6 +160,17 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS stock_operations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id VARCHAR(64) NOT NULL,
+    operation_key VARCHAR(120) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(owner_id, operation_key)
+  );
+  CREATE INDEX IF NOT EXISTS idx_stock_operations_owner_key ON stock_operations(owner_id, operation_key);
+`);
+
 // ------------------------------------------------------------------
 //  Seed / migracao inicial do Gateway
 // ------------------------------------------------------------------
@@ -250,11 +263,21 @@ function mapUser(row) {
     createdAt: row.created_at,
     status: row.status || 'active',
     storeName: row.store_name || null,
+    storeSlug: row.store_slug || slugify(row.store_name || row.username),
+    storefrontEnabled: !!row.storefront_enabled,
     storeBannerUrl: row.store_banner_url || null,
     storeLogoUrl: row.store_logo_url || null,
     storeLayout: row.store_layout || 'ecommerce',
     storefrontConfig: safeParse(row.storefront_config),
   };
+}
+
+// Slug canônico da loja (nome-da-loja) — sempre o mesmo para a mesma loja.
+function slugify(name) {
+  return String(name || 'loja')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'loja';
 }
 
 const gateway = {
@@ -286,6 +309,27 @@ const gateway = {
   setStatus(id, status) {
     db.prepare('UPDATE gateway_users SET status = ? WHERE id = ?').run(status, id);
     return this.getUserById(id);
+  },
+  // Super admin libera/bloqueia a vitrine virtual da loja.
+  setStorefrontEnabled(id, enabled) {
+    db.prepare('UPDATE gateway_users SET storefront_enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id);
+    return this.getUserById(id);
+  },
+  // Garante o slug canônico da loja (gerado a partir do nome, único e estável).
+  ensureSlug(id, baseName) {
+    const cur = this.getUserById(id);
+    if (!cur) return null;
+    if (cur.storeSlug && db.prepare('SELECT store_slug FROM gateway_users WHERE id = ?').get(id).store_slug) return cur;
+    let slug = slugify(baseName || cur.storeName || cur.username);
+    let n = 1;
+    while (db.prepare('SELECT id FROM gateway_users WHERE store_slug = ? AND id != ?').get(slug, id)) {
+      slug = `${slugify(baseName || cur.storeName || cur.username)}-${++n}`;
+    }
+    db.prepare('UPDATE gateway_users SET store_slug = ? WHERE id = ?').run(slug, id);
+    return this.getUserById(id);
+  },
+  getUserBySlug(slug) {
+    return mapUser(db.prepare('SELECT * FROM gateway_users WHERE store_slug = ?').get(slug));
   },
   updateUser(id, fields) {
     const current = this.getUserById(id);

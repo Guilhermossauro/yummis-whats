@@ -36,17 +36,30 @@ const DEFAULT_NODE_POSITIONS: { [id: string]: { x: number; y: number } } = {
   limpar_sacola: { x: 560, y: 520 },
 };
 
-export default function BotFlowBuilder() {
+type BotFlowBuilderProps = {
+  storageKey?: string;
+};
+
+const readFlowFromStorage = (key: string) => {
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored) return normalizeFlowBlocks(JSON.parse(stored));
+  } catch (e) {
+    console.error(`Falha ao ler fluxo salvo em ${key}`, e);
+  }
+  return null;
+};
+
+export default function BotFlowBuilder({ storageKey = 'sql_bot_flow' }: BotFlowBuilderProps) {
+  const publishedFlowStorageKey = storageKey || 'sql_bot_flow';
+  const draftFlowStorageKey = `${publishedFlowStorageKey}_draft`;
+  const publishedFlow = readFlowFromStorage(publishedFlowStorageKey)
+    || readFlowFromStorage('sql_bot_flow')
+    || normalizeFlowBlocks(DEFAULT_FLOW);
+  const [publishedSnapshot, setPublishedSnapshot] = useState(() => JSON.stringify(publishedFlow));
   const [blocks, setBlocks] = useState<FlowBlock[]>(() => {
-    const saved = localStorage.getItem('sql_bot_flow');
-    if (saved) {
-      try {
-        return normalizeFlowBlocks(JSON.parse(saved));
-      } catch (e) {
-        console.error('Falha ao ler fluxo do banco do bot', e);
-      }
-    }
-    return normalizeFlowBlocks(DEFAULT_FLOW);
+    return readFlowFromStorage(draftFlowStorageKey)
+      || publishedFlow;
   });
 
   const [selectedBlockId, setSelectedBlockId] = useState<string>('boas_vindas');
@@ -149,17 +162,38 @@ export default function BotFlowBuilder() {
     };
   }, []);
 
-  // Persist flow to localstorage on changes
   useEffect(() => {
-    localStorage.setItem('sql_bot_flow', JSON.stringify(blocks));
-  }, [blocks]);
+    localStorage.setItem(draftFlowStorageKey, JSON.stringify(blocks));
+  }, [blocks, draftFlowStorageKey]);
+
+  useEffect(() => {
+    const nextPublished = readFlowFromStorage(publishedFlowStorageKey)
+      || readFlowFromStorage('sql_bot_flow')
+      || normalizeFlowBlocks(DEFAULT_FLOW);
+    const nextDraft = readFlowFromStorage(draftFlowStorageKey) || nextPublished;
+    setBlocks(nextDraft);
+    setPublishedSnapshot(JSON.stringify(nextPublished));
+    setSelectedBlockId(current => nextDraft.some(block => block.id === current) ? current : (nextDraft[0]?.id || 'boas_vindas'));
+  }, [draftFlowStorageKey, publishedFlowStorageKey]);
 
   const activeBlock = blocks.find(b => b.id === selectedBlockId) || blocks[0];
   const activeAction = ACTION_META[activeBlock.actionType || 'none'] || ACTION_META.none;
+  const hasUnsavedChanges = JSON.stringify(normalizeFlowBlocks(blocks)) !== publishedSnapshot;
 
   const triggerNotif = (msg: string) => {
     setNotif(msg);
     setTimeout(() => setNotif(''), 3000);
+  };
+
+  const handleSaveFlow = () => {
+    const normalized = normalizeFlowBlocks(JSON.parse(JSON.stringify(blocks)));
+    const serialized = JSON.stringify(normalized);
+    localStorage.setItem(publishedFlowStorageKey, serialized);
+    localStorage.setItem(draftFlowStorageKey, serialized);
+    setBlocks(normalized);
+    setPublishedSnapshot(serialized);
+    window.dispatchEvent(new CustomEvent('bot-flow-saved', { detail: { key: publishedFlowStorageKey } }));
+    triggerNotif('Fluxo publicado com sucesso! As próximas respostas do bot já usarão esta versão.');
   };
 
   // Drag-and-drop block reordering handlers
@@ -314,7 +348,18 @@ export default function BotFlowBuilder() {
             Personalize a árvore de conversação do chatbot de atendimento. Ordene os blocos arrastando o ícone à esquerda do card, crie novas interações, defina opções de resposta e o bot se ajustará automaticamente no celular simulado!
           </p>
         </div>
-        <div className="flex gap-2.5">
+        <div className="flex gap-2.5 flex-wrap items-center">
+          <span className={`px-3 py-2 rounded-xl text-[11px] font-bold border ${hasUnsavedChanges ? 'bg-amber-500/10 border-amber-400/20 text-amber-200' : 'bg-emerald-500/10 border-emerald-400/20 text-emerald-200'}`}>
+            {hasUnsavedChanges ? 'Rascunho com alterações' : 'Fluxo publicado'}
+          </span>
+          <button
+            onClick={handleSaveFlow}
+            disabled={!hasUnsavedChanges}
+            className={`flex items-center gap-1.5 px-3 py-2 transition-all rounded-xl text-xs font-bold text-white ${hasUnsavedChanges ? 'bg-emerald-600 hover:bg-emerald-500 cursor-pointer' : 'bg-emerald-900/40 cursor-not-allowed opacity-70'}`}
+          >
+            <Check className="w-4 h-4" />
+            Salvar fluxo
+          </button>
           <button
             onClick={() => setIsFullscreen(prev => !prev)}
             className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-500 transition-all rounded-xl text-xs font-bold text-white cursor-pointer"

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Smartphone, Database, Check, RefreshCw, ShoppingCart, Trash2, Clock, Play, Server, AlertCircle, Sparkles, SendHorizontal } from 'lucide-react';
 import { SQLProduct, SQLLead, SQLCart, SQLOrder, SQLMessageLog, WhatsAppConfig, FlowBlock, FlowOption } from '../types';
-import { DEFAULT_FLOW } from '../data/flows';
+import { DEFAULT_FLOW, normalizeFlowBlocks } from '../data/flows';
 import { getSendMessageURL, isGatewayMode } from '../lib/gateway';
 import { processBotMessage, BotState } from '../lib/botProcessor';
 
@@ -21,6 +21,8 @@ interface ChatSimulatorProps {
   onSetBotPaused: (leadId: string, paused: number) => void;
   onConfirmOrderPayment: (leadId: string) => void;
   onTriggerInactivityRecovery: (hours: 24 | 48) => void;
+  botFlowStorageKey?: string;
+  storeLink?: string;
 }
 
 // Levenshtein distance computation helper
@@ -97,8 +99,19 @@ export default function ChatSimulator({
   onAddMessage,
   onSetBotPaused,
   onConfirmOrderPayment,
-  onTriggerInactivityRecovery
+  onTriggerInactivityRecovery,
+  botFlowStorageKey,
+  storeLink,
 }: ChatSimulatorProps) {
+  const publishedFlowStorageKey = botFlowStorageKey || 'sql_bot_flow';
+  const readPublishedFlow = (): FlowBlock[] => {
+    try {
+      const stored = localStorage.getItem(publishedFlowStorageKey) ?? localStorage.getItem('sql_bot_flow') ?? '[]';
+      return normalizeFlowBlocks(JSON.parse(stored));
+    } catch {
+      return normalizeFlowBlocks(DEFAULT_FLOW);
+    }
+  };
   
   // Choose/register active simulation number
   const [activeNumber, setActiveNumber] = useState('5511999999999');
@@ -317,12 +330,14 @@ export default function ChatSimulator({
 
     if (guidedFlowActive || !legacyCommerceCommand) {
       await new Promise(resolve => setTimeout(resolve, 300));
-      let configuredFlow: FlowBlock[] = [];
-      try {
-        configuredFlow = JSON.parse(localStorage.getItem('sql_bot_flow') || '[]');
-      } catch {
-        configuredFlow = [];
-      }
+      const configuredFlow = readPublishedFlow();
+      const currentCartItems = carts
+        .filter(item => item.lead_id === currentLeadId)
+        .map((item) => {
+          const product = products.find(p => p.id === item.product_id);
+          return product ? { codigo: product.codigo, quantidade: item.quantidade } : null;
+        })
+        .filter(Boolean) as Array<{ codigo: string; quantidade: number }>;
 
       const result = processBotMessage(msgToSend, previousBotState, {
         products: products.map(p => ({
@@ -336,6 +351,8 @@ export default function ChatSimulator({
         registered: !!previousBotState?.registered || !!lead.cadastrado,
         leadName: lead.nome,
         flowBlocks: configuredFlow,
+        cartItems: currentCartItems,
+        storeLink,
       });
 
       setLeadBotStates(prev => ({ ...prev, [currentLeadId]: result.nextState }));
@@ -447,15 +464,7 @@ export default function ChatSimulator({
     let response = '';
 
     // Load custom flows from localStorage or default
-    let botFlows: FlowBlock[] = DEFAULT_FLOW;
-    const savedFlow = localStorage.getItem('sql_bot_flow');
-    if (savedFlow) {
-      try {
-        botFlows = JSON.parse(savedFlow);
-      } catch (e) {
-        console.error('Failed to parse active bot flow', e);
-      }
-    }
+      const botFlows = readPublishedFlow();
 
     // First, determine if it is a global trigger / command or entry greeting
     const isGreeting = normalizedText === 'oi' || normalizedText === 'ola' || normalizedText === 'olá' || normalizedText === 'começar' || normalizedText === 'menu' || normalizedText === 'ajuda';

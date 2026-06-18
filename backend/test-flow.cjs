@@ -7,6 +7,7 @@ process.env.DATABASE_PATH = testDb;
 
 const { db } = require('./db');
 const botEngine = require('./botEngine');
+const { decrementStockForItems } = require('./stock');
 
 const phone = '5511988887777';
 
@@ -72,13 +73,39 @@ operatorResultPromise.then(async (operatorResult) => {
   assert.equal(lidSent[0], '*Ana Operadora*\nResposta para LID legado');
   assert.equal(lidOperatorResult.lead.id, lidLead.id);
 
+  db.prepare(
+    'INSERT INTO products (owner_id, codigo, nome, descricao, preco, estoque) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run('user_1', 'TST001', 'Produto Teste', 'Teste', 10, 5);
+
+  const firstDecrement = decrementStockForItems({
+    db,
+    userId: 'user_1',
+    items: [{ codigo: 'TST001', quantidade: 2 }],
+    operationKey: 'order-paid:test-501',
+  });
+  assert.equal(firstDecrement.applied, true);
+  assert.equal(firstDecrement.products[0].estoque, 3);
+
+  const secondDecrement = decrementStockForItems({
+    db,
+    userId: 'user_1',
+    items: [{ codigo: 'TST001', quantidade: 2 }],
+    operationKey: 'order-paid:test-501',
+  });
+  assert.equal(secondDecrement.applied, false);
+
+  const productAfterDuplicate = db.prepare(
+    'SELECT estoque FROM products WHERE owner_id = ? AND codigo = ?'
+  ).get('user_1', 'TST001');
+  assert.equal(productAfterDuplicate.estoque, 3);
+
   db.close();
   for (const suffix of ['', '-shm', '-wal']) {
     const file = testDb + suffix;
     if (fs.existsSync(file)) fs.unlinkSync(file);
   }
 
-  console.log('✅ Gateway validado: entrada, cadastro persistido, handoff humano e envio do operador.');
+  console.log('✅ Gateway validado: entrada, cadastro persistido, handoff humano, envio do operador e idempotência de estoque.');
 }).catch((err) => {
   db.close();
   throw err;

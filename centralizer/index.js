@@ -1,18 +1,15 @@
 /**
- * Servidor Centralizador
- * -----------------------
- * Reúne tudo numa ÚNICA origem (porta/host), o que torna a exposição via ngrok
- * trivial — basta um túnel apontando para este servidor.
+ * Servidor Centralizador — UMA única porta/origem para tudo.
  *
- *   /            -> redireciona para /sales/
- *   /sales/*     -> frontend (painel CRM) servido a partir de ../dist
- *                   (build feito com VITE_BASE=/sales/)
- *   /connection/*-> gateway WhatsApp (backend Baileys + painel + API)
- *                   proxy para http://localhost:3060 (prefixo /connection removido)
+ *   /                      -> redireciona para /store/
+ *   /store/*               -> CRM (frontend, build com VITE_BASE=/store/)
+ *                             inclui a vitrine pública /store/<nome-da-loja>
+ *   /gateway/*             -> Gateway WhatsApp (proxy p/ backend :3060)
  *
- * Como o frontend e o painel do gateway resolvem a URL da API dinamicamente a
- * partir de window.location, ao abrir a URL pública do ngrok tudo aponta para a
- * mesma origem automaticamente — sem configurar IP/porta manualmente.
+ * Compatibilidade: /sales -> /store ; /connection -> proxy (igual /gateway).
+ *
+ * Como o CRM e o painel do gateway resolvem a URL da API dinamicamente a partir
+ * de window.location, ao expor via ngrok tudo aponta para a mesma origem.
  */
 const express = require('express');
 const path = require('path');
@@ -25,45 +22,46 @@ const GATEWAY_TARGET = process.env.GATEWAY_URL || 'http://localhost:3060';
 const FRONT_DIST = path.resolve(__dirname, '..', 'dist');
 
 // ------------------------------------------------------------------
-//  /connection -> Gateway WhatsApp (backend na 3060)
-//  Remove o prefixo /connection antes de repassar (o backend serve em "/").
+//  /gateway (e /connection legado) -> Gateway WhatsApp (backend :3060)
+//  Remove o prefixo antes de repassar (o backend serve em "/").
 // ------------------------------------------------------------------
-app.use(
-  '/connection',
-  createProxyMiddleware({
-    target: GATEWAY_TARGET,
-    changeOrigin: true,
-    ws: true,
-    pathRewrite: { '^/connection': '' },
-  })
-);
+const gatewayProxy = createProxyMiddleware({
+  target: GATEWAY_TARGET,
+  changeOrigin: true,
+  ws: true,
+  pathRewrite: { '^/gateway': '', '^/connection': '' },
+});
+app.use('/gateway', gatewayProxy);
+app.use('/connection', gatewayProxy); // compatibilidade
 
 // ------------------------------------------------------------------
-//  /sales -> Frontend estático (build em ../dist com base /sales/)
+//  /store -> CRM (build em ../dist com base /store/)
+//  Inclui a vitrine pública: /store/<nome-da-loja> também cai no SPA.
 // ------------------------------------------------------------------
 if (!fs.existsSync(path.join(FRONT_DIST, 'index.html'))) {
-  console.warn('⚠️  ../dist não encontrado. Rode o build do frontend com base /sales/:');
-  console.warn('    (PowerShell)  $env:VITE_BASE="/sales/"; npm run build');
-  console.warn('    (bash)        VITE_BASE=/sales/ npm run build');
+  console.warn('⚠️  ../dist não encontrado. Gere o build do CRM com base /store/:');
+  console.warn('    (PowerShell)  $env:VITE_BASE="/store/"; npm run build');
+  console.warn('    (bash)        VITE_BASE=/store/ npm run build');
 }
-app.use('/sales', express.static(FRONT_DIST));
-// Também serve assets na raiz para evitar tela branca se alguém gerar o build
-// padrão do Vite (com /assets/), em vez do build com base /sales/.
+app.use('/store', express.static(FRONT_DIST));
+// Assets também na raiz (evita tela branca se o build sair com /assets/).
 app.use('/assets', express.static(path.join(FRONT_DIST, 'assets')));
-// Fallback SPA dentro de /sales
-app.get('/sales/*', (req, res) => res.sendFile(path.join(FRONT_DIST, 'index.html')));
+// Fallback SPA: /store/ e /store/<slug> servem o index do CRM.
+app.get('/store/*', (req, res) => res.sendFile(path.join(FRONT_DIST, 'index.html')));
 
 // ------------------------------------------------------------------
-//  Raiz -> painel de vendas
+//  Compatibilidade e raiz
 // ------------------------------------------------------------------
-app.get('/', (req, res) => res.redirect('/sales/'));
+app.get('/sales', (req, res) => res.redirect('/store/'));
+app.get('/sales/*', (req, res) => res.redirect('/store/'));
+app.get('/', (req, res) => res.redirect('/store/'));
 
 app.listen(PORT, () => {
   console.log('===================================================');
   console.log(`🧭 Centralizador ativo na porta ${PORT}`);
-  console.log(`   /            -> redirect /sales/`);
-  console.log(`   /sales/*     -> frontend (${FRONT_DIST})`);
-  console.log(`   /connection/*-> gateway (${GATEWAY_TARGET})`);
+  console.log(`   /            -> redirect /store/`);
+  console.log(`   /store/*     -> CRM + vitrine (${FRONT_DIST})`);
+  console.log(`   /gateway/*   -> gateway (${GATEWAY_TARGET})`);
   console.log('---------------------------------------------------');
   console.log(`   Exponha com:  ngrok http ${PORT}`);
   console.log('===================================================');

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { processBotMessage, BotState } from './src/lib/botProcessor';
 import { FlowBlock } from './src/types';
+import { resolveOrderPaymentTransition } from './src/lib/orderPayment';
 import { buildProductInterestText, buildStoreCartInterestText, buildWhatsAppProductLink } from './src/lib/productShare';
 
 const products = [
@@ -67,6 +68,7 @@ function runCorrectionFlow() {
   assert.equal(state.flowBlockId, 'adicionar_carrinho');
   assert.equal(result.action, undefined);
   assert.equal(result.effects?.some(effect => effect.type === 'add_to_cart'), true);
+  assert.equal(result.effects?.some((effect: any) => effect.type === 'decrement_stock'), false);
 }
 
 function runRegisteredLeadFlow() {
@@ -111,6 +113,57 @@ function runStoreCartFlow() {
   assert.equal(effect?.data.quantidade, 2);
 }
 
+function runOrderPaymentFlow() {
+  const leads = [
+    {
+      id: 'lead_1',
+      telefone: '5511999999999',
+      nome: 'Maria',
+      status_funil: 'AGUARDANDO_PIX' as const,
+      ultimo_gatilho: '2026-06-18T10:00:00.000Z',
+      bot_pausado: 0,
+    },
+  ];
+  const orders = [
+    {
+      id: '501',
+      lead_id: 'lead_1',
+      total: 159.9,
+      status_pagamento: 'PENDENTE' as const,
+      pix_copia_cola: 'pix',
+      transaction_id: 'TX-501',
+      data_criacao: '2026-06-18T10:00:00.000Z',
+    },
+  ];
+  const carts = [
+    {
+      id: 'cart_1',
+      lead_id: 'lead_1',
+      product_id: '101',
+      quantidade: 1,
+      size: 'M',
+      atualizado_em: '2026-06-18T10:00:00.000Z',
+    },
+  ];
+
+  const firstPayment = resolveOrderPaymentTransition('lead_1', orders, leads as any, carts, '2026-06-18T11:00:00.000Z');
+  assert.equal(firstPayment.shouldDecrementStock, true);
+  assert.equal(firstPayment.paidItems.length, 1);
+  assert.equal(firstPayment.nextOrders[0].status_pagamento, 'PAGO');
+  assert.equal(firstPayment.nextLeads[0].status_funil, 'PAGO');
+  assert.equal(firstPayment.nextCarts.length, 0);
+
+  const secondPayment = resolveOrderPaymentTransition(
+    'lead_1',
+    firstPayment.nextOrders,
+    firstPayment.nextLeads as any,
+    firstPayment.nextCarts,
+    '2026-06-18T11:05:00.000Z',
+  );
+  assert.equal(secondPayment.shouldDecrementStock, false);
+  assert.equal(secondPayment.paidItems.length, 0);
+}
+
 function runConfiguredCrmFlowTest() {
   const flowBlocks: FlowBlock[] = [
     {
@@ -147,6 +200,7 @@ runRegisteredLeadFlow();
 runThreeErrorsFlow();
 runShareLinkTest();
 runStoreCartFlow();
+runOrderPaymentFlow();
 runConfiguredCrmFlowTest();
 
 console.log('✅ Fluxo guiado, carrinho da vitrine, fluxo CRM, correção de dados, handoff por erro e links WhatsApp validados.');

@@ -16,6 +16,7 @@ interface SettingsProps {
   onAddEmployee?: (name: string, email: string, senha_hash: string, sellerId: string) => { success: boolean; msg: string };
   onEditEmployee?: (id: string, updated: Partial<SQLEmployee>) => void;
   onDeleteEmployee?: (id: string) => void;
+  botFlowStorageKey?: string;
 }
 
 export default function AdminSettings({
@@ -29,7 +30,8 @@ export default function AdminSettings({
   sellers = [],
   onAddEmployee,
   onEditEmployee,
-  onDeleteEmployee
+  onDeleteEmployee,
+  botFlowStorageKey,
 }: SettingsProps) {
   const [activeSubTab, setActiveSubTab] = useState<'whatsapp' | 'profile' | 'bot_flow' | 'employees'>('bot_flow');
 
@@ -372,7 +374,7 @@ export default function AdminSettings({
         )}
 
         {activeSubTab === 'bot_flow' && (
-          <BotFlowBuilder />
+          <BotFlowBuilder storageKey={botFlowStorageKey} />
         )}
 
         {activeSubTab === 'employees' && (

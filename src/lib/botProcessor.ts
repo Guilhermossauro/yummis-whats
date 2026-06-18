@@ -29,6 +29,8 @@ export interface BotContext {
   registered?: boolean;
   flowBlocks?: FlowBlock[];
   cartSummaryText?: string;
+  cartItems?: Array<{ codigo: string; quantidade: number }>;
+  storeLink?: string;
 }
 
 export type BotReply =
@@ -52,7 +54,6 @@ export interface BotResult {
   effects?: Array<
     | { type: 'register_lead'; data: { nome: string; email: string } }
     | { type: 'add_to_cart'; data: { codigo: string; quantidade: number } }
-    | { type: 'decrement_stock'; data: { codigo: string; quantidade: number } }
     | { type: 'clear_cart'; data: {} }
     | { type: 'set_lead_status'; data: { status: 'CARRINHO_ABERTO' | 'AGUARDANDO_PIX' | 'PAGO' | 'CONCLUIDO' } }
   >;
@@ -122,6 +123,21 @@ function cartSummary(items: Array<{ codigo: string; quantidade: number }>, produ
   return `${lines.join('\n')}\n\n*Total estimado:* R$ ${total.toFixed(2)}`;
 }
 
+function mergeCartItems(
+  current: Array<{ codigo: string; quantidade: number }> = [],
+  additions: Array<{ codigo: string; quantidade: number }> = [],
+) {
+  const merged = new Map<string, number>();
+  for (const item of [...current, ...additions]) {
+    const key = item.codigo.toLowerCase();
+    merged.set(key, (merged.get(key) || 0) + Math.max(1, item.quantidade || 1));
+  }
+  return Array.from(merged.entries()).map(([codigoLower, quantidade]) => ({
+    codigo: [...current, ...additions].find(item => item.codigo.toLowerCase() === codigoLower)?.codigo || codigoLower.toUpperCase(),
+    quantidade,
+  }));
+}
+
 /** Card de produto: foto + ficha na estrutura solicitada. */
 function productCard(p: BotProduct): BotReply {
   const caption =
@@ -172,6 +188,7 @@ function globalFlowBlock(input: string, flowBlocks: FlowBlock[]) {
     const title = norm(block.title);
     const builtInGlobal =
       (block.id === 'catalogo' && ['catalogo', 'produtos', 'colecao', 'ver produtos'].some((word) => n.includes(word))) ||
+      (block.id === 'vitrine_publica' && ['loja', 'vitrine', 'site'].some((word) => n.includes(word))) ||
       (block.id === 'carrinho' && ['carrinho', 'sacola', 'itens'].some((word) => n.includes(word))) ||
       (block.id === 'faturamento' && ['finalizar', 'fechar', 'faturamento', 'pagar', 'checkout', 'concluir'].some((word) => n.includes(word))) ||
       (block.id === 'suporte' && ['suporte', 'humano', 'atendente'].some((word) => n.includes(word)));
@@ -184,7 +201,11 @@ function globalFlowBlock(input: string, flowBlocks: FlowBlock[]) {
   return null;
 }
 
-function flowReply(block: FlowBlock, products: BotProduct[], cartSummaryText?: string): BotReply {
+function flowReply(
+  block: FlowBlock,
+  products: BotProduct[],
+  ctx: Pick<BotContext, 'cartSummaryText' | 'storeLink'> = {},
+): BotReply {
   let text = block.message || '';
   if (block.type === 'options' && block.options.length) {
     const list = block.optionType === 'numeric'
@@ -200,12 +221,17 @@ function flowReply(block: FlowBlock, products: BotProduct[], cartSummaryText?: s
     text += `\n\n${list}\n\n📷 Envie o *código* de um produto para ver foto e detalhes.`;
   }
   if (block.id === 'carrinho') {
-    text += `\n\n${cartSummaryText || 'Sua sacola ainda está vazia. Digite *catálogo* para escolher produtos.'}`;
+    text += `\n\n${ctx.cartSummaryText || 'Sua sacola ainda está vazia. Digite *catálogo* para escolher produtos.'}`;
+  }
+  if (block.id === 'vitrine_publica') {
+    text += ctx.storeLink
+      ? `\n\n🛍️ Acesse sua vitrine online aqui:\n${ctx.storeLink}\n\nMonte sua seleção e continue o pedido comigo aqui no WhatsApp quando quiser.`
+      : '\n\n🛍️ Sua vitrine online está pronta para receber pedidos.';
   }
   return t(text);
 }
 
-function processConfiguredFlow(input: string, state: BotState, flowBlocks: FlowBlock[], products: BotProduct[], cartSummaryText?: string): BotResult | null {
+function processConfiguredFlow(input: string, state: BotState, flowBlocks: FlowBlock[], products: BotProduct[], ctx: Pick<BotContext, 'cartSummaryText' | 'storeLink'> = {}): BotResult | null {
   if (!flowBlocks.length) return null;
   const start = flowBlocks.find((block) => block.isStarting) || flowBlocks.find((block) => block.id === 'boas_vindas') || flowBlocks[0];
   const current = flowBlocks.find((block) => block.id === state.flowBlockId) || start;
@@ -232,7 +258,7 @@ function processConfiguredFlow(input: string, state: BotState, flowBlocks: FlowB
   if (target.actionType === 'set_status_concluido') effects.push({ type: 'set_lead_status', data: { status: 'CONCLUIDO' } });
 
   return {
-    replies: [flowReply(target, products, cartSummaryText)],
+    replies: [flowReply(target, products, ctx)],
     nextState: { ...state, step: 'menu', flowBlockId: target.id, errors: 0 },
     action: target.actionType === 'pause_bot' ? 'pause_bot' : undefined,
     effects: effects.length ? effects : undefined,
@@ -306,7 +332,10 @@ export function processBotMessage(input: string, prev: BotState | undefined, ctx
   }
 
   if (state.step === 'start' || state.step === 'menu') {
-    const configured = processConfiguredFlow(input, state, ctx.flowBlocks || [], products, ctx.cartSummaryText);
+    const configured = processConfiguredFlow(input, state, ctx.flowBlocks || [], products, {
+      cartSummaryText: ctx.cartSummaryText,
+      storeLink: ctx.storeLink,
+    });
     if (configured) return configured;
   }
 
@@ -383,9 +412,11 @@ export function processBotMessage(input: string, prev: BotState | undefined, ctx
             nextState: { ...state, step: 'menu', pendingProduct: null, errors: 0, flowBlockId: 'catalogo' },
           };
         }
+        const nextCart = prod ? mergeCartItems(ctx.cartItems, [{ codigo: prod.codigo, quantidade: 1 }]) : ctx.cartItems || [];
         return {
           replies: [t(
             `✅ *${prod?.nome || 'Produto'}* adicionado ao carrinho!\n\n` +
+            `${nextCart.length ? `${cartSummary(nextCart, products)}\n\n` : ''}` +
             `1. 🛒 Ver carrinho / sacola\n` +
             `2. 👗 Continuar vendo catálogo`
           )],
@@ -406,9 +437,11 @@ export function processBotMessage(input: string, prev: BotState | undefined, ctx
       if (isYes(input)) {
         const items = state.pendingCart || [];
         const effects = items.map((item) => ({ type: 'add_to_cart' as const, data: item }));
+        const nextCart = mergeCartItems(ctx.cartItems, items);
         return {
           replies: [t(
             `✅ Itens adicionados ao carrinho!\n\n` +
+            `${nextCart.length ? `${cartSummary(nextCart, products)}\n\n` : ''}` +
             `1. 🛒 Ver carrinho / sacola\n` +
             `2. 👗 Continuar vendo catálogo`
           )],

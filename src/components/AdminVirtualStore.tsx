@@ -73,6 +73,14 @@ const LEFT_TABS: Array<{ key: LeftTab; label: string }> = [
   { key: 'tools', label: 'Ferramentas' },
 ];
 
+const slugifyStoreValue = (value: string) => String(value || '')
+  .trim()
+  .toLowerCase()
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^a-z0-9]+/g, '_')
+  .replace(/^_+|_+$/g, '');
+
 export default function AdminVirtualStore({
   lojista,
   products,
@@ -118,7 +126,10 @@ export default function AdminVirtualStore({
   );
 
   const categorySuggestions = useMemo(() => getProductSuggestionCategories(products, storeLayout), [products, storeLayout]);
-  const publicPath = `/store/${storeSlug || 'loja'}`;
+  const resolvedStoreSlug = storeSlug || slugifyStoreValue(storeName) || 'loja';
+  const publicPath = `/store/${resolvedStoreSlug}`;
+  const publicUrl = typeof window !== 'undefined' ? `${window.location.origin}${publicPath}` : publicPath;
+  const editorPath = `/editor/loja/${resolvedStoreSlug}`;
   const layoutOption = STOREFRONT_LAYOUT_OPTIONS.find(option => option.key === storeLayout) || STOREFRONT_LAYOUT_OPTIONS[1];
 
   const pageElements = useMemo(() => getPageElements(canvasPage, config), [canvasPage, config]);
@@ -329,7 +340,7 @@ export default function AdminVirtualStore({
               O editor agora roda em uma página própria, sem o menu do CRM, com painel lateral, canvas visual e drag and drop direto nos elementos.
             </p>
           </div>
-          <a href={`/editor/loja/${storeSlug || 'loja'}`} className="shrink-0 rounded-2xl bg-indigo-600 hover:bg-indigo-500 px-5 py-3 text-sm font-black inline-flex items-center gap-2">
+          <a href={editorPath} className="shrink-0 rounded-2xl bg-indigo-600 hover:bg-indigo-500 px-5 py-3 text-sm font-black inline-flex items-center gap-2">
             <ExternalLink className="w-4 h-4" />
             Abrir editor
           </a>
@@ -366,7 +377,7 @@ export default function AdminVirtualStore({
               Tudo salvo
             </div>
           )}
-          <a href={publicPath} target="_blank" rel="noreferrer" className="hidden sm:inline-flex rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-4 py-2 text-xs font-bold items-center gap-2">
+          <a href={publicUrl} target="_blank" rel="noreferrer" className="hidden sm:inline-flex rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-4 py-2 text-xs font-bold items-center gap-2">
             <EyeIcon />
             Ver loja
           </a>
@@ -529,8 +540,8 @@ export default function AdminVirtualStore({
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
                     <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Link público</span>
-                    <a href={publicPath} target="_blank" rel="noreferrer" className="mt-1 text-sm font-bold text-indigo-300 flex items-center gap-1 truncate">
-                      {publicPath}
+                    <a href={publicUrl} target="_blank" rel="noreferrer" className="mt-1 text-sm font-bold text-indigo-300 flex items-center gap-1 truncate">
+                      {publicUrl}
                       <ExternalLink className="w-3.5 h-3.5 shrink-0" />
                     </a>
                   </div>

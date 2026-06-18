@@ -11,12 +11,39 @@
  */
 export function getGatewayBaseURL(): string {
   if (typeof window === 'undefined') return 'http://localhost:3060';
+
   const { origin, port } = window.location;
-  // Ambiente de desenvolvimento (frontend Vite separado na 3050)
-  if (port === '3050') return 'http://localhost:3060';
-  // Centralizador / ngrok: gateway montado em /connection na mesma origem
-  return `${origin}/connection`;
+
+  // Desenvolvimento local (Vite na 3050) -> backend direto.
+  if (port === '3050') {
+    return 'http://localhost:3060';
+  }
+
+  // Centralizador / produção / ngrok: gateway na MESMA origem sob /gateway.
+  return `${origin}/gateway`;
 }
+
+/** Slug canônico da loja (nome-da-loja) usado na rota /store/<slug>. */
+export function storeSlug(name?: string | null): string {
+  return (name || 'loja')
+    .toString()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'loja';
+}
+
+/**
+ * URL canônica da vitrine da loja: SEMPRE dominio/store/<slug>.
+ * Independe de onde foi chamada (edição, dashboard, etc.).
+ */
+export function getStorefrontURL(name?: string | null): string {
+  const slug = storeSlug(name);
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  return `${origin}/store/${slug}`;
+}
+
 
 /** Endpoint público de disparo de mensagens do gateway (Yummis API). */
 export function getSendMessageURL(): string {

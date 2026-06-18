@@ -865,13 +865,13 @@
   <script>
     // ----------------------------------------------------------------
     //  Base da API resolvida DINAMICAMENTE pelo endereço do navegador.
-    //  Sob o centralizador/ngrok o painel vive em /connection.
+    //  Sob o centralizador/ngrok o painel vive em /gateway (ou /connection legado).
     // ----------------------------------------------------------------
     window.API_BASE = (function () {
       var p = window.location.pathname || '';
-      return p.indexOf('/connection') >= 0
-        ? window.location.origin + '/connection'
-        : window.location.origin;
+      if (p.indexOf('/gateway') >= 0) return window.location.origin + '/gateway';
+      if (p.indexOf('/connection') >= 0) return window.location.origin + '/connection';
+      return window.location.origin;
     })();
 
     (function () {
@@ -1360,9 +1360,12 @@
           const approveBtn = status !== 'active'
             ? `<button class="btn-action" style="color:var(--green)" onclick="setUserStatus('${u.id}','active')" title="Aprovar loja"><i data-lucide="check" style="width:13px;height:13px;"></i></button>`
             : `<button class="btn-action" onclick="setUserStatus('${u.id}','blocked')" title="Bloquear"><i data-lucide="ban" style="width:13px;height:13px;"></i></button>`;
+          const sfOn = !!u.storefrontEnabled;
+          const storefrontBtn = `<button class="btn-action" style="color:${sfOn ? 'var(--green)' : 'var(--muted)'}" onclick="setStorefront('${u.id}', ${sfOn ? 'false' : 'true'})" title="${sfOn ? 'Revogar Vitrine Virtual' : 'Autorizar Vitrine Virtual'}"><i data-lucide="store" style="width:13px;height:13px;"></i></button>`;
+          const sfPill = sfOn ? '<span class="pill ok" style="font-size:0.56rem">Vitrine ✓</span>' : '';
           return `
           <tr>
-            <td><b>${u.storeName || u.username}</b><div class="sub" style="font-size:0.66rem;">@${u.username} ${pill}</div></td>
+            <td><b>${u.storeName || u.username}</b><div class="sub" style="font-size:0.66rem;">@${u.username} ${pill} ${sfPill}</div></td>
             <td><span class="token-cell" title="${u.token}">${u.token}</span></td>
             <td class="font-mono">${u.tokensCount === null ? '∞' : u.tokensCount}</td>
             <td>${u.expirationDate ? new Date(u.expirationDate).toLocaleDateString('pt-BR') : '—'}</td>
@@ -1370,6 +1373,7 @@
             <td>
               <div style="display:flex; gap:0.4rem;">
                 ${approveBtn}
+                ${storefrontBtn}
                 <button class="btn-action" onclick="openEditModal('${u.id}', '${u.username}', ${u.tokensCount}, '${u.expirationDate || ''}')" title="Editar">
                   <i data-lucide="pencil" style="width:13px;height:13px;"></i>
                 </button>
@@ -1391,6 +1395,17 @@
         });
         if (res.ok) { notify(status === 'active' ? 'Loja aprovada!' : 'Loja bloqueada.'); fetchAdminUsers(); }
         else notify('Erro ao atualizar status.', 'error');
+      } catch (e) { notify('Erro de conexão.', 'error'); }
+    }
+
+    async function setStorefront(id, enabled) {
+      try {
+        const res = await fetch(`/api/admin/users/${id}/storefront`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled })
+        });
+        if (res.ok) { notify(enabled ? 'Vitrine Virtual autorizada!' : 'Vitrine Virtual revogada.'); fetchAdminUsers(); }
+        else notify('Erro ao atualizar vitrine.', 'error');
       } catch (e) { notify('Erro de conexão.', 'error'); }
     }
 

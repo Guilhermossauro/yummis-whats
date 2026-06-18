@@ -214,6 +214,9 @@ export default function PublicStorefront({
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || 'Loja não encontrada.');
+        if (!data?.store || !Array.isArray(data?.products)) {
+          throw new Error('A resposta da loja veio incompleta. Atualize a página em alguns segundos.');
+        }
         return data as PublicStorePayload;
       })
       .then((data) => { if (alive) setPayload(data); })
@@ -227,11 +230,13 @@ export default function PublicStorefront({
   }, [route.productCode]);
 
   const storeBasePath = `/store/${slug}`;
-  const layout = resolveStoreLayout(payload?.store.layout);
-  const storeName = payload?.store.storeName || 'Loja';
+  const storeData = payload?.store || null;
+  const productsData = payload?.products || [];
+  const layout = resolveStoreLayout(storeData?.layout);
+  const storeName = storeData?.storeName || 'Loja';
   const config = useMemo(
-    () => normalizeStorefrontConfig(layout, storeName, payload?.products || [], payload?.store.config),
-    [layout, payload?.products, payload?.store.config, storeName],
+    () => normalizeStorefrontConfig(layout, storeName, productsData, storeData?.config),
+    [layout, productsData, storeData?.config, storeName],
   );
   const publicConfig = useMemo(
     () => ({
@@ -242,7 +247,7 @@ export default function PublicStorefront({
   );
 
   const sortedProducts = useMemo(() => {
-    const base = sortStoreProducts(payload?.products || [], layout, config)
+    const base = sortStoreProducts(productsData, layout, config)
       .filter(product => !config.hiddenProductCodes.includes(product.codigo.toUpperCase()));
 
     return base.map((product) => {
@@ -258,7 +263,7 @@ export default function PublicStorefront({
         featured,
       } satisfies ProductWithMeta;
     });
-  }, [config, layout, payload?.products]);
+  }, [config, layout, productsData]);
 
   const categoryChips = useMemo(
     () => buildStoreCategoryChips(sortedProducts, layout, config),
@@ -339,15 +344,15 @@ export default function PublicStorefront({
   };
 
   const redirectToWhatsApp = (lines = cartLines) => {
-    if (!payload || !lines.length) return;
+    if (!payload || !storeData || !lines.length) return;
     if (embeddedMode) {
       navigate({ page: 'cart' });
       return;
     }
     window.location.href = buildWhatsAppStoreCartLink(
       lines.map(item => ({ product: item.product, quantity: item.quantity })),
-      payload.store.whatsappPhone,
-      payload.store.storeName
+      storeData.whatsappPhone,
+      storeData.storeName
     );
   };
 
@@ -371,8 +376,8 @@ export default function PublicStorefront({
     );
   }
 
-  const bannerStyle = payload.store.bannerUrl
-    ? { backgroundImage: `linear-gradient(180deg, rgba(20, 20, 20, 0.18), rgba(20, 20, 20, 0.55)), url(${payload.store.bannerUrl})` }
+  const bannerStyle = storeData?.bannerUrl
+    ? { backgroundImage: `linear-gradient(180deg, rgba(20, 20, 20, 0.18), rgba(20, 20, 20, 0.55)), url(${storeData.bannerUrl})` }
     : { background: config.theme.topbar };
 
   return (

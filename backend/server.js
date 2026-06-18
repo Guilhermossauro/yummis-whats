@@ -6,6 +6,7 @@ const QRCode = require('qrcode');
 
 // Banco local SQLite (substitui o antigo db.json)
 const { db, gateway, channels, DB_PATH } = require('./db');
+const { decrementStockForItems } = require('./stock');
 // Motor de atendimento do bot (fluxo, cadastro, consultas ao banco, inatividade)
 const botEngine = require('./botEngine');
 // Adapter de canal Telegram (long-polling da Bot API)
@@ -855,8 +856,9 @@ app.post('/api/auth/signup', (req, res) => {
   if (gateway.getUserByUsername(username)) return res.status(409).json({ error: 'Este nome de usuário já existe.' });
   if (hasDuplicatedStoreName(storeName || username)) return res.status(409).json({ error: 'Já existe outra loja com esse nome.' });
   const generatedToken = 'token_' + Math.random().toString(36).substr(2, 9) + '_' + Math.random().toString(36).substr(2, 9);
+  const id = 'user_' + Date.now();
   gateway.createUser({
-    id: 'user_' + Date.now(),
+    id,
     username,
     password,
     token: generatedToken,
@@ -867,7 +869,42 @@ app.post('/api/auth/signup', (req, res) => {
     storeName: storeName || username,
     storeLayout: 'ecommerce',
   });
+  // Define a rota canônica /store/<slug> (estável e única).
+  gateway.ensureSlug(id, storeName || username);
   return res.json({ success: true, pending: true, message: 'Cadastro recebido! Sua loja será liberada após aprovação do administrador.' });
+});
+
+// Super admin autoriza/revoga a VITRINE VIRTUAL da loja (compartilhar/editar).
+app.post('/api/admin/users/:id/storefront', (req, res) => {
+  const { id } = req.params;
+  const { enabled } = req.body || {};
+  const user = gateway.getUserById(id);
+  if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
+  if (enabled) gateway.ensureSlug(id, user.storeName || user.username); // garante slug ao liberar
+  const updated = gateway.setStorefrontEnabled(id, !!enabled);
+  return res.json({ success: true, user: updated });
+});
+
+// Vitrine PÚBLICA por slug — só responde se a loja estiver autorizada e ativa.
+app.get('/api/store/:slug', (req, res) => {
+  const store = gateway.getUserBySlug(req.params.slug);
+  if (!store || !store.storefrontEnabled || store.status !== 'active') {
+    return res.status(404).json({ error: 'Vitrine não encontrada.' });
+  }
+  let products = [];
+  try {
+    products = db.prepare('SELECT codigo, nome, descricao, preco, estoque, foto_path FROM products WHERE owner_id = ? ORDER BY id').all(store.id);
+  } catch (e) {}
+  res.json({
+    slug: store.storeSlug,
+    storeName: store.storeName,
+    bannerUrl: store.storeBannerUrl,
+    logoUrl: store.storeLogoUrl,
+    layout: store.storeLayout,
+    config: store.storefrontConfig,
+    whatsapp: (activeSessions.get(store.id) || {}).phone || null,
+    products,
+  });
 });
 
 app.put('/api/user/profile', (req, res) => {
@@ -1187,21 +1224,14 @@ app.post('/api/products/decrement-stock', (req, res) => {
   const user = userFromAuth(req);
   if (!user) return res.status(401).json({ error: 'Token Bearer inválido.' });
   const items = Array.isArray(req.body?.items) ? req.body.items : [{ id: req.body?.id, codigo: req.body?.codigo, quantidade: req.body?.quantidade }];
-  const updated = [];
-  const tx = db.transaction((rows) => {
-    for (const item of rows) {
-      const quantidade = Math.max(1, Number(item.quantidade || 1));
-      const product = item.id
-        ? db.prepare('SELECT * FROM products WHERE id = ? AND owner_id = ?').get(item.id, user.id)
-        : db.prepare('SELECT * FROM products WHERE codigo = ? AND owner_id = ?').get(item.codigo, user.id);
-      if (!product) continue;
-      const nextStock = Math.max(0, Number(product.estoque || 0) - quantidade);
-      db.prepare('UPDATE products SET estoque = ? WHERE id = ? AND owner_id = ?').run(nextStock, product.id, user.id);
-      updated.push(mapProduct({ ...product, estoque: nextStock }));
-    }
+  const { applied, products } = decrementStockForItems({
+    db,
+    userId: user.id,
+    items,
+    operationKey: req.body?.operationKey,
+    mapProduct,
   });
-  tx(items);
-  return res.json({ success: true, products: updated });
+  return res.json({ success: true, applied, products });
 });
 
 // Webhook genérico de entrada — Facebook, Instagram, X (e outros).
@@ -1303,6 +1333,9 @@ app.get('/api/me', (req, res) => {
   res.json({
     id: user.id,
     username: user.username,
+    storeName: user.storeName,
+    storeSlug: user.storeSlug,
+    storefrontEnabled: !!user.storefrontEnabled, // super admin liberou a vitrine?
     whatsapp: { status: s ? s.status : 'DISCONNECTED', phone: s && s.phone ? s.phone : null },
   });
 });
