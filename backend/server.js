@@ -48,6 +48,17 @@ function safeParseObject(value) {
   return {};
 }
 
+function safeParseArray(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {}
+  }
+  return [];
+}
+
 function normalizeStoreNameKey(value) {
   return String(value || '')
     .trim()
@@ -893,16 +904,31 @@ app.get('/api/store/:slug', (req, res) => {
   }
   let products = [];
   try {
-    products = db.prepare('SELECT codigo, nome, descricao, preco, estoque, foto_path FROM products WHERE owner_id = ? ORDER BY id').all(store.id);
+    products = db.prepare(
+      `SELECT id, codigo, nome, descricao, preco, estoque, foto_path, categories,
+              has_shipping, shipping_type, shipping_cost
+         FROM products WHERE owner_id = ? ORDER BY id`
+    ).all(store.id).map((p) => ({
+      ...p,
+      id: String(p.id),
+      categories: safeParseArray(p.categories),
+      has_shipping: !!p.has_shipping,
+    }));
   } catch (e) {}
+  // Formato esperado pela vitrine pública (PublicStorefront): { store: {...}, products }
   res.json({
-    slug: store.storeSlug,
-    storeName: store.storeName,
-    bannerUrl: store.storeBannerUrl,
-    logoUrl: store.storeLogoUrl,
-    layout: store.storeLayout,
-    config: store.storefrontConfig,
-    whatsapp: (activeSessions.get(store.id) || {}).phone || null,
+    success: true,
+    store: {
+      id: store.id,
+      username: store.username,
+      storeName: store.storeName,
+      slug: store.storeSlug,
+      bannerUrl: store.storeBannerUrl,
+      logoUrl: store.storeLogoUrl,
+      layout: store.storeLayout,
+      whatsappPhone: (activeSessions.get(store.id) || {}).phone || null,
+      config: store.storefrontConfig,
+    },
     products,
   });
 });
